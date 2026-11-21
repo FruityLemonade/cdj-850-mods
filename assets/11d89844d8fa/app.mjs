@@ -5,6 +5,7 @@ const picker = get("firmware");
 const pick = get("pick");
 const dropzone = get("dropzone");
 const modOptions = get("mods");
+const version = get("version");
 const build = get("build");
 const download = get("download");
 
@@ -15,6 +16,15 @@ let fileAttempt = 0;
 let downloadUrl = null;
 
 const selected = () => [...modOptions.querySelectorAll("input:checked")].map((item) => item.value);
+const validVersion = () => /^[0-9]\.[0-9]{2}$/.test(version.value);
+
+for (const option of stock.options) {
+  const row = get("mod-template").content.cloneNode(true);
+  row.querySelector("input").value = option.id;
+  row.querySelector("strong").textContent = option.title;
+  row.querySelector("strong + span").textContent = option.description;
+  get("player-mods").append(row);
+}
 
 function status(message, tone = "") {
   get("status").textContent = message;
@@ -31,12 +41,17 @@ function resetDownload() {
 
 function renderControls() {
   const count = selected().length;
+  const invalid = !validVersion();
   get("input-summary").textContent = input ? `Verified v${stock.stockVersion}` : checking ? "Verifying…" : "Awaiting file";
   get("mod-summary").textContent = count;
-  build.disabled = busy || !input || count === 0;
-  pick.disabled = modOptions.disabled = busy;
+  version.setAttribute("aria-invalid", String(invalid));
+  build.disabled = busy || !input || invalid;
+  pick.disabled = modOptions.disabled = version.disabled = busy;
   if (!busy && !downloadUrl) {
-    status(input && count ? "Ready to apply your selections." : "Choose a firmware file and at least one mod.");
+    if (invalid) status("Enter a version like 1.15.", "error");
+    else if (!input) status("Choose an original firmware file.");
+    else if (count) status("Ready to apply your selections.");
+    else status("Ready to repack stock firmware.");
   }
 }
 
@@ -104,15 +119,18 @@ dropzone.addEventListener("drop", (event) => {
   dropzone.classList.remove("dragging");
   chooseFile(event.dataTransfer.files[0]);
 });
-modOptions.addEventListener("change", () => {
+function updateSelections() {
   if (busy) return;
   resetDownload();
   renderControls();
-});
+}
+modOptions.addEventListener("change", updateSelections);
+version.addEventListener("input", updateSelections);
 
 build.addEventListener("click", () => {
   const mods = selected();
-  if (!input || !mods.length || busy) return;
+  if (!input || busy || !validVersion()) return;
+  const label = version.value;
 
   busy = true;
   renderControls();
@@ -135,7 +153,7 @@ build.addEventListener("click", () => {
         download.href = downloadUrl;
         build.hidden = true;
         download.hidden = false;
-        finish("Firmware repacked and verified.", "success");
+        finish(`Firmware v${label} repacked and verified.`, "success");
         download.focus();
       } else if (data.type === "error") {
         finish(data.message, "error");
@@ -143,7 +161,7 @@ build.addEventListener("click", () => {
     });
     worker.addEventListener("error", () => finish("Could not start the patching engine. Reload and try again.", "error"));
     const copy = input.slice(0);
-    worker.postMessage({ input: copy, mods }, [copy]);
+    worker.postMessage({ input: copy, mods, version: label }, [copy]);
   } catch {
     finish("Could not start the patching engine. Reload and try again.", "error");
   }
