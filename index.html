@@ -7,8 +7,8 @@
   <meta name="theme-color" content="#171819">
   <title>CDJ-850 Firmware Patcher</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23171819'/%3E%3Cpath d='M7 16h18M16 7v18' fill='none' stroke='%23ffb455' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23ffb455'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="./assets/3936589ae5f1/style.css">
-  <script type="module" src="./assets/3936589ae5f1/app.mjs"></script>
+  <link rel="stylesheet" href="./assets/68c752901a4d/style.css">
+  <script type="module" src="./assets/68c752901a4d/app.mjs"></script>
 </head>
 <body>
   <div class="shell">
@@ -80,10 +80,10 @@
           </dl>
           <label for="version" class="version-label">Output version</label>
           <input type="text" id="version" value="1.14" autocomplete="off" spellcheck="false" aria-describedby="version-help">
-          <p class="version-help" id="version-help">Use one digit, a dot and two digits. To restore stock, choose a higher version than the deck shows, such as <code>1.15</code> over <code>1.14</code>.</p>
+          <p class="version-help" id="version-help">Use one digit, a dot and two digits. The USB updater skips a matching version such as <code>1.14</code> over <code>1.14</code>. Use <code>0.13</code> for a modded build you can reinstall, then restore stock with the original <code>1.13</code> update.</p>
           <div class="warning">
             <strong>Firmware installation risk</strong>
-            <p>These custom builds are tested on physical decks, but custom firmware is always a risk. Installing one can cause playback problems or leave the deck unable to boot. Keep the original update for recovery.</p>
+            <p>Custom firmware can cause playback problems or leave the deck unable to boot. The expanded FLAC formats and INFO rating display have been tested in the emulator. Keep the original update for recovery.</p>
           </div>
           <button class="button primary" type="button" id="build" disabled>Repack firmware</button>
           <a class="button primary" id="download" download="C850MAIN.UPD" hidden>Download C850MAIN.UPD</a>
