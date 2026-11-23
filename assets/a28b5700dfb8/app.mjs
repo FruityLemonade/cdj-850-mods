@@ -8,12 +8,14 @@ const modOptions = get("mods");
 const version = get("version");
 const build = get("build");
 const download = get("download");
+const patchCount = get("patch-count");
 
 let input = null;
 let checking = false;
 let busy = false;
 let fileAttempt = 0;
 let downloadUrl = null;
+let displayedPatchCount = -1;
 
 const selected = () => [...modOptions.querySelectorAll("input:checked")].map((item) => item.value);
 const validVersion = () => /^[0-9]\.[0-9]{2}$/.test(version.value);
@@ -29,6 +31,27 @@ for (const option of stock.options) {
 function status(message, tone = "") {
   get("status").textContent = message;
   get("status").dataset.tone = tone;
+}
+
+async function updatePatchCount(method) {
+  if (!stock.counterUrl) return;
+  try {
+    const response = await fetch(stock.counterUrl, {
+      method,
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+      keepalive: method === "POST",
+    });
+    if (!response.ok) return;
+    const { count } = await response.json();
+    // A delayed read or earlier write can arrive after a newer total.
+    if (!Number.isSafeInteger(count) || count <= displayedPatchCount) return;
+    displayedPatchCount = count;
+    patchCount.textContent = `${count.toLocaleString()} firmware ${count === 1 ? "repack" : "repacks"} completed`;
+    patchCount.hidden = false;
+  } catch {
+    // The counter is independent of the firmware download.
+  }
 }
 
 function resetDownload() {
@@ -155,6 +178,7 @@ build.addEventListener("click", () => {
         download.hidden = false;
         finish(`Firmware v${label} repacked and verified.`, "success");
         download.focus();
+        void updatePatchCount("POST");
       } else if (data.type === "error") {
         finish(data.message, "error");
       }
@@ -168,3 +192,4 @@ build.addEventListener("click", () => {
 });
 
 renderControls();
+void updatePatchCount("GET");
