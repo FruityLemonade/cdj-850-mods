@@ -81,6 +81,11 @@ typedef void c850_hook_fn(u32 *regs, u32 *sp);
 #define C850_BPMLOCK_TRACK_BPM  C850_U32(0x0CE649C4) /* track base tenths snapshot */
 #define C850_BPMLOCK_TIMER      C850_U32(0x0C1E0C68) /* 10s Master edit timeout */
 
+static inline s32 c850_effective_pitch(void)
+{
+    return C850_BPMLOCK_ACTIVE == 1 ? (s32)C850_BPMLOCK_PITCH : (s32)C850_PITCH;
+}
+
 /* ---- INFO screen & DB records ---- */
 #define C850_DISPLAY_MODE       C850_U32(0x0C9D0AF8) /* 10 = loaded title, 11 = INFO list */
 #define C850_INFO_CURSOR        C850_U8(0x0CE6D1E4)  /* 0..1 = title, 2.. = INFO list */

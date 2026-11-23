@@ -377,7 +377,7 @@ void phase_meter_hook(u32 *regs, u32 *sp)
         return;
 
     locked = C850_BPMLOCK_ACTIVE == 1;
-    pitch = locked ? (s32)C850_BPMLOCK_PITCH : (s32)C850_PITCH;
+    pitch = c850_effective_pitch();
     phase_meter_compute(C850_PLAY_FRAME, C850_BPM_BASE_TENTHS, pitch, locked, &st);
     phase_meter_format(&st, rows, lens);
     for (r = 0; r < 3; r++)

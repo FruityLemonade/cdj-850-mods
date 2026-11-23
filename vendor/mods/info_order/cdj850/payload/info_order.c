@@ -331,7 +331,7 @@ static void io_title_row(void)
     volatile u8 *src = (volatile u8 *)IO_ROW_SOURCE(1);
     u8 text[IO_TEXT_MAX];
     u32 rec, x100;
-    s32 pitch = C850_PITCH;
+    s32 pitch = c850_effective_pitch();
     int i, len, same, bpm_ok;
 
     if (IO_DISPLAY_MODE != IO_MODE_TITLE || (row[1] != IO_CODE_ARTIST && row[1] != IO_CODE_BPM))

@@ -176,6 +176,10 @@ void bpm_lock_tick(void)
         bl_have_saved = 0;
     bl_was_locked = C850_BPMLOCK_ACTIVE;
 
+    /* Keep WIDE engaged if rotary Master BPM editing moves locked pitch beyond ±16%. */
+    if (C850_BPMLOCK_ACTIVE == 1)
+        bl_apply_wide_if_needed();
+
     /* Live flash while rotating Master BPM in edit mode. */
     if (C850_BPMLOCK_EDIT == 1) {
         u32 m = C850_BPMLOCK_MASTER;

@@ -139,7 +139,7 @@ u32 bpm_decimals_actual_x100(void)
     bpm100 = bpm_decimals_beat_bpm100(C850_PLAY_FRAME * 40u / 3u);   /* frames * 1000 / 75 */
     if (bpm100 == 0)
         bpm100 = bpm_decimals_grid_bpm100;
-    return bpm_decimals_x100(bpm100, BPMD_PITCH);
+    return bpm_decimals_x100(bpm100, c850_effective_pitch());
 }
 
 /* Stock BPM item text: digits '.' digit " bpm" (FUN_0C06734E). Returns the
