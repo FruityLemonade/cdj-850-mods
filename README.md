@@ -5,7 +5,7 @@
 Custom firmware for the Pioneer CDJ-850. Pick the mods you want in the browser and download a ready-to-install update file.
 
 > [!WARNING]
-> Custom firmware can cause playback problems or leave the deck unable to boot. The INFO rating display has been tested in the emulator and still needs verification on a physical deck. Keep the original update for recovery.
+> Custom firmware can cause playback problems or leave the deck unable to boot. The INFO rating display, BPM lock and Phase meter have been tested in the emulator and still need verification on a physical deck. Keep the original update for recovery.
 
 ## How to use it
 
@@ -30,6 +30,8 @@ All mods are off until you tick them, and you can combine them freely.
 | **Loop resize** | Halves or doubles a playing loop, following the beat grid when the track has one. | While a loop plays, press **CUE/LOOP CALL ◀** to halve it or **CALL ▶** to double it. Outside a loop the buttons work as normal. |
 | **BPM up to 999** | Raises the BPM limit from 180 to 999, for both rekordbox beat grids and the BPM display. Useful for very fast genres. | Nothing to do. Fast tracks just show and play with their real BPM. |
 | **BPM decimals** | Shows the actual BPM to two decimal places, for example `132.25`, in place of the rekordbox BPM. | Open the **INFO** view on a track with a beat grid. |
+| **BPM lock** | Enables the CDJ-350's BPM Lock across a ±100% range, matching loaded tracks to a chosen Master BPM and auto-switching to **WIDE** past ±16%. Shows Master/locked BPM on the 7-segment display and status flashes on the dot matrix. | Hold **BEAT SELECT + MASTER TEMPO** for 1 s to enter Master BPM edit mode and set the BPM with the rotary selector (press **BACK** or wait 10 s to exit). Short-press **BEAT SELECT + MASTER TEMPO** to toggle lock on or off. |
+| **Phase meter** | Displays the current beat in the bar (`1/4`–`4/4`), playing BPM, 4-beat boxes and a sub-beat phase indicator on **INFO** Page 2, shifting subsequent **INFO** pages down by one page. Works with BPM Lock on or off. | Press **INFO** on a USB track and turn the rotary selector one page down to view Page 2. |
 | **INFO screen order** | Shows the playing BPM, Camelot key and rekordbox rating under the USB track title (for example `128.23 12A *****`). One asterisk represents one star. With **MASTER TEMPO** off, the key follows the pitch to the nearest semitone. With **BPM decimals** enabled and a beat grid available, the playing BPM follows the current beat's tempo. | Press **INFO** on a USB track with BPM metadata. The first page shows the title, the combined row and the waveform. Turn the jog for Artist, Rating and Key, then Album and Comment. |
 | **20-minute auto standby** | Puts the deck into standby after 20 minutes without use, instead of 4 hours. | Turn on **AUTO STANDBY** in the **UTILITY** menu. |
 
