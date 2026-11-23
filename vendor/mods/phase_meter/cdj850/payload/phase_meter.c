@@ -5,9 +5,11 @@
  * Inserts 3 unused DB item codes (0x13, 0x14, 0x15 -> valid empty buffer
  * rec + 0x7BC in FUN_0C074824) at indices 2..4 of each loaded USB DB record
  * (0x0C9D44D4), shifting original Page 2+ items down by one page. When the
- * user views INFO Page 2 (mode 11, cursor 2..4), renders beat-in-bar, actual
- * BPM, 4-beat boxes, and a 13-step sub-beat phase sweep using only 32-bit
- * integer math and glyphs supported by the CDJ-850 dot matrix & vfd_render.h.
+ * user views INFO Page 2 (mode 11, cursor 2), renders centered, unhighlighted,
+ * icon-free rows (tag 0x11..0x13, attr0 0x00) showing beat-in-bar, actual BPM,
+ * 4-beat boxes, and a 13-step sub-beat phase sweep using only 32-bit integer
+ * math and glyphs supported by the CDJ-850 dot matrix & vfd_render.h.
+ * Also snaps INFO cursor across 3..4 so Page 2 steps in one rotary click.
  */
 #include "c850.h"
 
@@ -27,6 +29,8 @@
 volatile u32 phase_meter_on = 1;
 volatile u32 phase_meter_records;      /* DB records updated with Page 2 slot */
 volatile u32 phase_meter_updates;      /* row rewrites when Page 2 is displayed */
+
+static u8 pm_last_cursor;
 
 static int pm_is_code(u8 c)
 {
@@ -305,11 +309,12 @@ void phase_meter_format(const pm_state_t *st, char rows[3][24], u8 lens[3])
     lens[2] = (u8)p;
 }
 
-static void pm_write_row(int r, const char *text, u8 len)
+static __attribute__((noinline)) void pm_write_row(int r, const char *text, u8 len)
 {
     volatile u8 *row = (volatile u8 *)C850_MATRIX_ROW(r);
     volatile u8 *src = (volatile u8 *)C850_ROW_SOURCE(r);
-    int same = (row[4] == len);
+    u8 tag = (u8)(0x11u + (u32)r);
+    int same = (row[0] == tag && row[1] == 0u && row[4] == len);
     int i;
 
     for (i = 0; i < (int)len; i++) {
@@ -321,6 +326,10 @@ static void pm_write_row(int r, const char *text, u8 len)
     if (same)
         return;
 
+    row[0] = tag;
+    row[1] = 0u;
+    row[2] = 0u;
+    row[3] = 0u;
     for (i = 0; i < (int)len; i++)
         row[5 + i] = (u8)text[i];
     row[4] = len;
@@ -344,10 +353,27 @@ void phase_meter_hook(u32 *regs, u32 *sp)
     if (C850_IS_USB_MODE == 1)
         pm_update_records();
 
-    if (C850_DISPLAY_MODE != PM_MODE_INFO)
+    if (C850_DISPLAY_MODE != PM_MODE_INFO) {
+        pm_last_cursor = C850_INFO_CURSOR;
         return;
+    }
     cursor = C850_INFO_CURSOR;
-    if (cursor < 2u || cursor > 4u)
+    if (cursor == 3u || cursor == 4u) {
+        if (pm_last_cursor == 2u) {
+            if (C850_INFO_COUNT > 5u) {
+                C850_INFO_CURSOR = 5u;
+                pm_last_cursor = 5u;
+                return;
+            }
+            C850_INFO_CURSOR = 2u;
+            cursor = 2u;
+        } else {
+            C850_INFO_CURSOR = 2u;
+            cursor = 2u;
+        }
+    }
+    pm_last_cursor = cursor;
+    if (cursor != 2u)
         return;
 
     locked = C850_BPMLOCK_ACTIVE == 1;
