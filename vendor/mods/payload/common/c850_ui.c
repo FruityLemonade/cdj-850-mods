@@ -11,6 +11,7 @@
 #include "c850_ui.h"
 
 #define UI_JOG              C850_FN(0x0C0DD492, u32, (void))   /* the word's stock function */
+#define UI_TICK_STOCK       C850_FN(0x0C0EB388, void, (void))  /* pool 0x0C0EC838 stock fn */
 #define UI_SETTINGS_SAVE    C850_FN(0x0C08E9B0, int, (int kind, u32 record))
 #define UI_D156             C850_U8(0x0CE6D156)                 /* toggled with D154 */
 #define UI_NAME             (C850_SETTINGS + 3)                 /* HISTORY name, 32 bytes */
@@ -81,6 +82,38 @@ int c850_ui_shift(const u16 *k, const u16 *p, u16 *own, u16 key_k0)
     own[0] |= key_k0 | C850_K0_BEAT_SELECT;
     c850_ui_shifts++;
     return 1;
+}
+
+int c850_ui_shift_k1(const u16 *k, const u16 *p, u16 *own, u16 key_k1)
+{
+    if (!(p[1] & key_k1) || !(k[0] & C850_K0_BEAT_SELECT))
+        return 0;
+    if (ui_bs_ok) {                  /* undo the fraction toggle of this BEAT SELECT */
+        C850_BEAT_FRACTION_MODE = ui_bs_d154;
+        UI_D156 = ui_bs_d156;
+    }
+    own[0] |= C850_K0_BEAT_SELECT;
+    own[1] |= key_k1;
+    c850_ui_shifts++;
+    return 1;
+}
+
+/* ---- state tick hooks ---- */
+
+c850_ui_tick_fn *const c850_ui_ticks_start[1]
+    __attribute__((used, section(".c850_ui_ticks.a"))) = {0};
+c850_ui_tick_fn *const c850_ui_ticks_end[1]
+    __attribute__((used, section(".c850_ui_ticks.z"))) = {0};
+
+/* Pool 0x0C0EC838 (FUN_0C0EB388): first call of FUN_0C0EC73C (state tick).
+ * Calls the stock function, then every registered tick hook. */
+void c850_ui_tick(void)
+{
+    u32 f, end = (u32)c850_ui_ticks_end;
+
+    UI_TICK_STOCK();
+    for (f = (u32)(c850_ui_ticks_start + 1); f < end; f += 4)
+        (*(c850_ui_tick_fn *const *)f)();
 }
 
 /* ---- mod flags ---- */

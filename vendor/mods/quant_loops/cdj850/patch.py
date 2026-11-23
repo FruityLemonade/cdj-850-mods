@@ -123,7 +123,7 @@ MODS = {
         args=[],
         literal=False,
         hook=True,
-        after=('bpm_decimals',),
+        after=('bpm_decimals', 'phase_meter'),
         routine='payload:c850_ui_flash_hook',
         **BPM_SITE,
     ),

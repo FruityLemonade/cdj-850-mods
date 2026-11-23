@@ -66,7 +66,7 @@ MODS = {
     'hot_cues_tick': _redirect(
         'hot cues: actions and PLAY at the start of the state tick',
         [0x4F16, 0x4BF0, 0xD33E, 0x434B, 0xD63E, 0x6060], 2,
-        0x0C0EB388, 'hot_cues_tick'),
+        0x0C0EB388, 'c850_ui_tick'),
     # 0x0C0D3F58: ..; ..; mov.l @(0x0C0D41BC),r3; jsr @r3; mov #1,r5; ..
     'hot_cues_select': _redirect(
         'hot cues: the hot cue as the CALL selection',
@@ -94,7 +94,7 @@ MODS = {
         args=[],
         literal=False,
         hook=True,
-        after=('bpm_decimals',),
+        after=('bpm_decimals', 'phase_meter'),
         routine='payload:c850_ui_flash_hook',
         **BPM_SITE,
     ),

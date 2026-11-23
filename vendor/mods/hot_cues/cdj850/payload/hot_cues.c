@@ -60,7 +60,6 @@
 #define HC_SELECT_STOCK     C850_FN(0x0C0D275A, int, (int src, int dir, int x))
 #define HC_CUE_LIST_CHANGED C850_FN(0x0C0D5978, void, (void))
 #define HC_WAI_FLG          C850_FN(0x0C0C9E7C, int, (int flg, u32 ptn, int mode, u32 *out, int tmo))
-#define HC_TICK_STOCK       C850_FN(0x0C0EB388, void, (void))
 
 /* ANLZ context (*0x0CE649D0): the hot-cue tag of the current file */
 #define HC_CTX_MAGIC0       0xBFA14C7Eu                  /* ctx+0, ctx+0x1414 (FUN_0C0C12B2) */
@@ -519,8 +518,8 @@ void hot_cues_tick(void)
             break;                    /* one action per cycle */
         }
     }
-    HC_TICK_STOCK();
 }
+C850_UI_TICK_HOOK(hot_cues_tick);
 
 /* ---- ANLZ write: pool 0x0C0C195C, the section write of FUN_0C0C166C ---- */
 

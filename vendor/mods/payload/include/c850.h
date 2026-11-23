@@ -62,6 +62,33 @@ typedef void c850_hook_fn(u32 *regs, u32 *sp);
 #define C850_BPM_BASE_TENTHS    C850_U16(0x0C9D23EC) /* 1280 = 128.0 BPM */
 #define C850_BPM_WHOLE_PITCHED  C850_U16(0x0C9D23F0)
 #define C850_BPM_STAGING        C850_U16(0x0C9D0AE0) /* TX page 1 bytes 8..9 */
+#define C850_PITCH_STAGING      C850_U16(0x0C9D0AE2) /* TX page 1 bytes 10..11 */
+#define C850_PITCH_SCALE        C850_U16(0x0CE6CA4E) /* 300=+-6, 200=+-10/WIDE, 320=+-16 */
+#define C850_STAGING_S18        C850_U8(0x0C9D0AF0)  /* sign (0x02|0x01) + MT (0x80) */
+#define C850_STAGING_S19        C850_U8(0x0C9D0AF1)  /* 0x10=2 dec, 0x20=1 dec (WIDE), 0x40=BPM */
+#define C850_STAGING_S1B        C850_U8(0x0C9D0AF3)  /* 0x04=WIDE, 0x20=16, 0x40=10, 0x80=6 */
+
+/* ---- BPM Lock state (FUN_0C0D1F14) ---- */
+#define C850_BPMLOCK_ACTIVE     C850_U8(0x0CE649AC)  /* 1 = locked to Master BPM */
+#define C850_BPMLOCK_EDIT       C850_U8(0x0CE649AD)  /* 1 = editing Master BPM */
+#define C850_BPMLOCK_SET        C850_U8(0x0CE649AE)  /* 1 = Master BPM initialized */
+#define C850_BPMLOCK_MASTER     C850_U32(0x0CE649B0) /* Master BPM in tenths (e.g. 1280) */
+#define C850_BPMLOCK_SAVED_WIDE C850_U8(0x0CE649B8)
+#define C850_BPMLOCK_SAVED_SCALE C850_U16(0x0CE649BA)
+#define C850_BPMLOCK_PITCH      C850_S16(0x0CE649BC) /* locked pitch in 1/100 % */
+#define C850_BPMLOCK_DIR        C850_U8(0x0CE649BE)  /* catch-up direction (1/2/3) */
+#define C850_BPMLOCK_PENDING    C850_U8(0x0CE649BF)  /* catch-up armed */
+#define C850_BPMLOCK_TRACK_BPM  C850_U32(0x0CE649C4) /* track base tenths snapshot */
+#define C850_BPMLOCK_TIMER      C850_U32(0x0C1E0C68) /* 10s Master edit timeout */
+
+/* ---- INFO screen & DB records ---- */
+#define C850_DISPLAY_MODE       C850_U32(0x0C9D0AF8) /* 10 = loaded title, 11 = INFO list */
+#define C850_INFO_CURSOR        C850_U8(0x0CE6D1E4)  /* 0..1 = title, 2.. = INFO list */
+#define C850_INFO_COUNT         C850_U8(0x0CE6D1E5)
+#define C850_INFO_TRACK         C850_S16(0x0C9D1D96)
+#define C850_DB_RECORDS         0x0C9D44D4u
+#define C850_DB_RECORD_SIZE     0x864u
+#define C850_ROW_SOURCE(r)      (0x0C9D196Fu + (r) * 0x100u)
 
 /* ---- Keys (section 4b.1) ---- */
 #define C850_K0                 C850_U16(0x0CE6CA08) /* held keys, internal words */
@@ -192,6 +219,10 @@ typedef void c850_hook_fn(u32 *regs, u32 *sp);
  * word 0x0C0B9310 (section 8.4, payload_demo) */
 #define c850_power_tick_1ms            C850_FN(0x0C0EF8C8, void, (void))
 #define C850_TICK_MS                   C850_U32(0x0CE49F54) /* +1 per 1 ms tick */
+/* BPM Lock dispatcher, recalc, and pitch fader converter */
+#define c850_bpm_lock_cmd              C850_FN(0x0C0D1F14, u32, (u32 cmd, u32 a, u32 b))
+#define c850_bpm_lock_recalc           C850_FN(0x0C0D1CE6, u32, (void))
+#define c850_tempo_fader_to_pitch      C850_FN(0x0C0D9B44, u32, (void))
 
 /* ---- Service-mode gate (docs/cdj850-modding.md, "Service mode gate") ----
  * Nonzero while the deck is in a power-on firmware-update mode (USB/CD
