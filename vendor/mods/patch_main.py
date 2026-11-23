@@ -185,7 +185,7 @@ def patch_flash(flash, names, model=modelfw.DEFAULT_MODEL, report=None):
     if fw.container == 'c850':
         image = c850_repack.unpack_main(flash)
         patched = patch(image, names, model, report)
-        upd = c850_repack.build_upd(flash, patched, check_boot=True)
+        upd = c850_repack.build_upd(flash, patched, check_boot=True, model=model)
         lo = c850_repack.LABEL_OFF
         out = bytearray(flash)
         out[lo:window_end] = b'\xff' * (window_end - lo)

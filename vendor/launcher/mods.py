@@ -8,6 +8,7 @@ A mod.conf sets, in the form of models/*.conf:
 
   MOD_ENV          the CDJ_* (or plain) knob the board actually reads, or
                    several '+'-joined for a mod that spans more than one image
+  MOD_ENV_<MODEL>  optional knob list for one model, e.g. MOD_ENV_CDJ350
   MOD_ON, MOD_OFF  the value that knob gets when the mod is enabled/disabled
   MOD_DEFAULT      "on" or "off": what a fresh install ships with
   MOD_MODELS       comma-separated model ids (models/*.conf) the mod is offered
@@ -49,7 +50,8 @@ def load(lay, model_id=None):
     for conf in sorted(glob.glob(os.path.join(lay.emu, "mods", "*", "mod.conf"))):
         with open(conf, encoding="utf-8") as f:
             v = model.parse(f.read())
-        mods.append(Mod(os.path.basename(os.path.dirname(conf)), v["MOD_ENV"], v["MOD_ON"], v["MOD_OFF"],
+        model_env = v.get("MOD_ENV_" + model_id.upper()) if model_id else None
+        mods.append(Mod(os.path.basename(os.path.dirname(conf)), model_env or v["MOD_ENV"], v["MOD_ON"], v["MOD_OFF"],
                         v["MOD_DEFAULT"], v["MOD_MODELS"], v["MOD_DESCRIPTION"]))
     mods.sort(key=lambda m: m.default != "on")
     return [m for m in mods if model_id is None or supports(m, model_id)]

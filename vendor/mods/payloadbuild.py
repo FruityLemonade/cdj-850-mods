@@ -108,10 +108,17 @@ def libgcc():
     return out
 
 
+def payload_dirs(mod, model):
+    """Model sources and optional sources shared by that mod's model ports."""
+    root = os.path.join(HERE, mod)
+    model_dir = os.path.join(root, model, 'payload')
+    return (model_dir, os.path.join(root, 'payload')) if os.path.isdir(model_dir) else ()
+
+
 def sources(mod, model):
     """The payload sources of one mod folder for `model`, sorted."""
-    folder = os.path.join(HERE, mod, model, 'payload')
-    return sorted(p for kind in SOURCE_KINDS for p in glob.glob(os.path.join(folder, kind)))
+    return sorted(p for folder in payload_dirs(mod, model) for kind in SOURCE_KINDS
+                  for p in glob.glob(os.path.join(folder, kind)))
 
 
 def payload_mods(model):
@@ -203,10 +210,9 @@ def common_sources(mods, model):
     return out
 
 
-def mod_include(mod, model):
-    """The include/ folder of a mod's payload sources (its own headers), or None."""
-    folder = os.path.join(HERE, mod, model, 'payload', 'include')
-    return folder if os.path.isdir(folder) else None
+def mod_includes(mod, model):
+    return [os.path.join(folder, 'include') for folder in payload_dirs(mod, model)
+            if os.path.isdir(os.path.join(folder, 'include'))]
 
 
 def gate_source(gates, defined, gate):
@@ -243,8 +249,8 @@ def _digest(mods, model):
                    sorted(stack_limits(mods, model).items()))).encode())
     h.update(tool_prefix().encode())
     # every file of the mods' payload folders: sources and their own headers
-    own = [p for m in mods for p in sorted(glob.glob(os.path.join(HERE, m, model, 'payload', '**', '*'),
-                                                      recursive=True)) if os.path.isfile(p)]
+    own = [p for m in mods for folder in payload_dirs(m, model)
+           for p in sorted(glob.glob(os.path.join(folder, '**', '*'), recursive=True)) if os.path.isfile(p)]
     own += common_sources(mods, model)
     for path in [LINKER_SCRIPT] + sorted(glob.glob(os.path.join(INCLUDE, '*'))) + own:
         h.update(path.encode())
@@ -281,7 +287,7 @@ def build(mods, model='cdj850', keep=None):
         for k, src in enumerate(files):
             mod = 'common' if os.path.dirname(src) == COMMON else os.path.relpath(src, HERE).split(os.sep)[0]
             obj = os.path.join(work, '%02d_%s_%s.o' % (k, mod, os.path.basename(src).replace('.', '_')))
-            inc = ['-I', INCLUDE] + (['-I', mod_include(mod, model)] if mod_include(mod, model) else [])
+            inc = ['-I', INCLUDE] + [opt for folder in mod_includes(mod, model) for opt in ('-I', folder)]
             if src.endswith('.s'):
                 _run([pre + 'as', *ASFLAGS, *inc, '-o', obj, src], work)
             else:

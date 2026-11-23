@@ -433,7 +433,7 @@ def check_c850_version(stock_sec, out_sec, name, rep):
 def check_c850_section(i, stock_sec, out_sec, model, rep):
     name = 'section %d (%s)' % (i + 1, out_sec[c850_repack.LABEL_OFF:c850_repack.PACKED_OFF]
                                 .decode('latin1').rstrip('\x00 '))
-    problems = c850_repack.check_upd(out_sec, check_boot=True)
+    problems = c850_repack.check_upd(out_sec, check_boot=True, model=model)
     if problems:
         for p in problems:
             rep.fail('%s: %s' % (name, p))
@@ -532,7 +532,8 @@ def flat_spans(spans, changed, stock_img, table, cave, dsp=None):
     return [(mod, kind, off, off + size) for mod, items in spans.items() for off, size, kind in items]
 
 
-def check_writes(target, stock_img, out_img, profile, spans, rep, table=None, dsp=None):
+def check_writes(target, stock_img, out_img, profile, spans, rep, table=None, dsp=None,
+                 *, startup=c850loader.CDJ850_STARTUP, gated_boot_pools=()):
     """Checks that hold for every image: what changed is what was declared,
     free space was erased, a site is small. Returns the span list."""
     changed = changed_ranges(stock_img, out_img)
@@ -544,14 +545,21 @@ def check_writes(target, stock_img, out_img, profile, spans, rep, table=None, ds
         except sigpatch.NotApplied:
             pass
     if spans is None and target == 'main':
-        found = c850loader.spans(stock_img, out_img)
+        found = c850loader.spans(stock_img, out_img, startup=startup)
         if found:
             spans_of_loader = [(lo, lo + size) for lo, size, _ in found]
             changed = [r for r in changed if not any(lo <= r[0] and r[1] <= hi for lo, hi in spans_of_loader)]
     else:
         found = []
-    flat = flat_spans(spans, changed, stock_img, table, cave, dsp) + \
-        [('loader', kind, off, off + size) for off, size, kind in found]
+    pool_spans = []
+    if spans is None and target == 'main':
+        for addr in sorted(gated_boot_pools):
+            off = addr - profile.flash_base
+            if stock_img[off:off + 4] != out_img[off:off + 4]:
+                pool_spans.append(('?', 'site', off, off + 4))
+        changed = [r for r in changed if not any(lo <= r[0] and r[1] <= hi for _, _, lo, hi in pool_spans)]
+    flat = flat_spans(spans, changed, stock_img, table, cave, dsp) + pool_spans + [
+        ('loader', kind, off, off + size) for off, size, kind in found]
     if spans is not None:
         declared = bootcrit.merge([(lo, hi) for _, _, lo, hi in flat])
         exact = changed_ranges(stock_img, out_img, gap=1)
@@ -566,9 +574,9 @@ def check_writes(target, stock_img, out_img, profile, spans, rep, table=None, ds
         if kind == 'site' and target == 'main' and hi - lo > MAX_SITE_BYTES:
             rep.fail('%s: %s rewrites %d bytes at %#x, more than a call site' % (target, mod, hi - lo, lo))
     if any(kind in LOADER_KINDS for _, kind, _, _ in flat):
-        check_loader(target, stock_img, out_img, flat, rep)
+        check_loader(target, stock_img, out_img, flat, rep, startup=startup)
     if target == 'main':
-        check_payload_calls(stock_img, out_img, flat, rep)
+        check_payload_calls(stock_img, out_img, flat, rep, startup=startup)
     runs = bootcrit.merge([(lo, hi) for _, kind, lo, hi in flat if kind == 'free'])
     proven = 0
     for lo, hi in runs:
@@ -590,7 +598,7 @@ def check_writes(target, stock_img, out_img, profile, spans, rep, table=None, ds
 LOADER_KINDS = ('loader', 'loaderblob')
 
 
-def check_payload_calls(stock_img, out_img, flat, rep):
+def check_payload_calls(stock_img, out_img, flat, rep, *, startup=c850loader.CDJ850_STARTUP):
     """Every word a mod wrote into MAIN code or the cave that points into the
     loader's region (a trampoline's hook literal, a redirected pool word) must
     point inside the payload the loader in this image copies there, so a hook
@@ -608,7 +616,7 @@ def check_payload_calls(stock_img, out_img, flat, rep):
     if not found:
         return
     try:
-        payload = c850loader.installed(out_img)
+        payload = c850loader.installed(out_img, startup=startup)
     except c850loader.LoaderError:
         payload = None
     end = c850loader.PAYLOAD + len(payload) if payload is not None else None
@@ -623,18 +631,18 @@ def check_payload_calls(stock_img, out_img, flat, rep):
                % (len(found), len(payload), c850loader.PAYLOAD))
 
 
-def check_loader(target, stock_img, out_img, flat, rep):
+def check_loader(target, stock_img, out_img, flat, rep, *, startup=c850loader.CDJ850_STARTUP):
     """The loader's writes are the entry literal and the stub and blob it
     reaches, as c850loader verifies them, and nothing else is declared as one."""
-    problems = c850loader.verify(stock_img, out_img) if target == 'main' else ['the loader only patches MAIN']
+    problems = c850loader.verify(stock_img, out_img, startup=startup) if target == 'main' else ['the loader only patches MAIN']
     try:
-        payload = c850loader.installed(out_img)
+        payload = c850loader.installed(out_img, startup=startup)
     except c850loader.LoaderError:
         payload = None
     if not problems and payload is None:
         problems = ['writes are declared as the loader, but the entry still calls the clear']
     if not problems:
-        expect = {(lo, lo + size, kind) for lo, size, kind in c850loader.spans(stock_img, out_img)}
+        expect = {(lo, lo + size, kind) for lo, size, kind in c850loader.spans(stock_img, out_img, startup=startup)}
         stray = [(lo, hi, kind) for _, kind, lo, hi in flat if kind in LOADER_KINDS and (lo, hi, kind) not in expect]
         if stray:
             problems = ['loader write %#x-%#x (%s) is not one c850loader makes' % stray[0]]
@@ -643,7 +651,7 @@ def check_loader(target, stock_img, out_img, flat, rep):
     if not problems:
         rep.ok('%s: loader: entry literal %#x -> stub %#x, stub verified byte for byte, %d-byte payload to %#x, '
                'all of it over zeros of the cleared statics'
-               % (target, c850loader.BASE + c850loader.ENTRY_LITERAL, c850loader.BLOB_ADDR, len(payload),
+               % (target, c850loader.BASE + c850loader.ENTRY_LITERAL, startup.blob_addr, len(payload),
                   c850loader.PAYLOAD))
 
 
@@ -653,7 +661,7 @@ def check_free_unreached(stock_img, flat, base, rep, cave=None, byteorder='<'):
     A profile's named cave `cave` is proven by its hash instead."""
     free = [(mod, lo, hi) for mod, kind, lo, hi in flat
             if kind == 'free' and not (cave and cave[0] <= lo and hi <= cave[1])]
-    if cave and not free:
+    if not free:
         return
     if byteorder == '<':
         reach = bootcrit.closure(stock_img, base, every_task=True)
@@ -728,10 +736,33 @@ def check_dsp_writes(stock_img, flat, dsp, start, rep, out_img=None):
                   ', boot check passed' if shi else ', which nothing in the program points into'))
 
 
-def check_main_image(stock_img, out_img, profile, spans, rep, dsp=None):
+def is_gated_pool(stock, out, profile, span, allowed, payload):
+    """Prove the service path of an allowlisted, four-byte pool redirect."""
+    _, kind, lo, hi = span
+    if (kind != 'site' or lo % 4 or hi != lo + 4 or
+            profile.flash_base + lo not in allowed or not payload):
+        return False
+    (target,) = struct.unpack_from('>I', out, lo)
+    offset = target - c850loader.PAYLOAD
+    # The generated service gate ORs its two byte flags, then
+    # jumps to the stock callee when the result is nonzero.
+    code = bytes.fromhex('d106 6110 6013 d106 6110 201b 2008 8b02 d104 412b 0009 d104 412b 0009')
+    if target % 4 or not 0 <= offset <= len(payload) - (len(code) + 16):
+        return False
+    if payload[offset:offset + len(code)] != code:
+        return False
+    first, second, mod, original = struct.unpack_from('>4I', payload, offset + len(code))
+    return ((first, second) == profile.gate and mod != target and
+            c850loader.PAYLOAD <= mod < c850loader.PAYLOAD + len(payload) and not mod % 2 and
+            original == struct.unpack_from('>I', stock, lo)[0])
+
+
+def check_main_image(stock_img, out_img, profile, spans, rep, dsp=None,
+                     *, startup=c850loader.CDJ850_STARTUP, gated_boot_pools=()):
     base = profile.flash_base
     span = dsp_range(stock_img, dsp)
-    flat = check_writes('main', stock_img, out_img, profile, spans, rep, dsp=span)
+    flat = check_writes('main', stock_img, out_img, profile, spans, rep, dsp=span,
+                        startup=startup, gated_boot_pools=gated_boot_pools)
     if span:
         check_dsp_writes(stock_img, flat, dsp, span[0], rep, out_img=out_img)
     cave = None
@@ -761,6 +792,17 @@ def check_main_image(stock_img, out_img, profile, spans, rep, dsp=None):
               sum(hi - lo for lo, hi in closure.ranges), len(closure.ranges)))
     # The loader's entry literal is boot code by design; check_loader verified what it now reaches.
     bad = overlaps([f for f in flat if f[1] != 'loader'], closure.ranges)
+    if bad and gated_boot_pools:
+        try:
+            payload = c850loader.installed(out_img, startup=startup)
+        except c850loader.LoaderError:
+            payload = None
+        ungated = [hit for hit in bad
+                   if not is_gated_pool(stock_img, out_img, profile, hit[:4], gated_boot_pools, payload)]
+        if len(ungated) < len(bad):
+            rep.ok('main: %d boot-critical pool overlaps verified to dispatch to stock during service mode'
+                   % (len(bad) - len(ungated)))
+        bad = ungated
     for mod, kind, lo, hi, (rlo, rhi) in bad[:SHOWN]:
         where = closure.routine_at(max(lo, rlo))
         func = ('routine %#x, reached from %s' % (base + where[0], where[1])) if where else 'the vector area or a task descriptor'
@@ -768,7 +810,7 @@ def check_main_image(stock_img, out_img, profile, spans, rep, dsp=None):
     if len(bad) > SHOWN:
         rep.fail('main: %d more overlaps' % (len(bad) - SHOWN))
     if not bad:
-        rep.ok('main: %d declared writes, none in boot-critical code' % len(flat))
+        rep.ok('main: %d declared writes, no unguarded overlaps with boot-critical code' % len(flat))
     check_free_unreached(stock_img, flat, base, rep, cave, byteorder=profile.byteorder)
     rep.not_checked.append('%d indirect calls and jumps in the walked code are not followed, so the boot-critical set '
                            'is a lower bound' % closure.unresolved)
@@ -964,8 +1006,15 @@ def verify(stock_data, out_data, model, targets=None, spans=None, profiles=None)
             m = re.search(r'(\d+\.\d+)', lbl)
             match_known_mods(target, stock_img, out_img, model, label_version(lbl) or (m.group(1) if m else None), rep)
         if target == 'main':
-            profile = profile or default_main_profile(model)
-            check_main_image(stock_img, out_img, profile, spans.get('main'), rep, modelfw.dsp_profile(model))
+            try:
+                player = modelfw.player(model)
+            except ModuleNotFoundError:
+                player = None
+            profile = profile or getattr(player, 'MAIN_PROFILE', None) or default_main_profile(model)
+            check_main_image(stock_img, out_img, profile, spans.get('main'), rep,
+                             modelfw.dsp_profile(model),
+                             startup=getattr(player, 'LOADER_STARTUP', c850loader.CDJ850_STARTUP),
+                             gated_boot_pools=getattr(player, 'GATED_BOOT_POOLS', ()))
         elif profile is None:
             rep.unproven('gui changed, and there is no image profile of the display for %s: its load table and '
                          'known renderer sites are not known, and the image has no call graph' % model)
@@ -994,11 +1043,9 @@ def identify(data):
     """(player id, section role, version) from the section labels of a file, or
     None. The MAIN label names the player; the CDJ-2000 and CDJ-900 files hold
     one section each, so whichever of the four it is names it."""
-    if (len(data) >= c850_repack.PACKED_OFF and
-            data[c850_repack.LABEL_OFF:c850_repack.LABEL_OFF + 12] == b'CDJ-850 MAIN'):
-        lbl = data[c850_repack.LABEL_OFF:c850_repack.PACKED_OFF].decode('latin1', errors='replace')
-        m = re.search(r'(\d+\.\d+)', lbl)
-        return 'cdj850', 'MAIN', (c850_repack.base_version(m.group(1)) if m else None)
+    for model, (label, _) in c850_repack.FLAT_MODELS.items():
+        if len(data) >= c850_repack.PACKED_OFF and data.startswith(label, c850_repack.LABEL_OFF):
+            return model, 'MAIN', c850_repack.base_version(c850_repack.get_version(data))
     sizes, pos = modelfw.parse_manifest(data)
     labels, at = [], pos
     for size in sizes or [len(data)]:

@@ -59,6 +59,7 @@ Standard library only.
 """
 import struct
 import sys
+from dataclasses import dataclass
 
 BASE = 0x0C000000                # MAIN's load and execution address
 
@@ -85,6 +86,19 @@ FORMAT = 1
 HEADER = 0x20
 PAYLOAD = REGION + HEADER        # where the payload runs from
 MAX_PAYLOAD = GUARD_HI_ADDR - PAYLOAD
+
+@dataclass(frozen=True)
+class Startup:
+    clear: int
+    bounds: int
+    statics: int
+    statics_end: int
+    blob_addr: int
+    image_len: int = IMAGE_LEN
+
+
+CDJ850_STARTUP = Startup(CLEAR, CLEAR_BOUNDS, STATICS, STATICS_END, BLOB_ADDR)
+
 
 # The stub, hand-assembled from mods/loader/cdj850/main_loader.s. The pool
 # (SRC, DST, WORDS, GUARD_HI_ADDR | UNCACHED, GUARD_HI, CLEAR) follows at
@@ -130,70 +144,71 @@ def blob(payload):
     return header + payload + b'\0' * (-len(payload) % 4)
 
 
-def stub(n_bytes):
+def stub(n_bytes, *, startup=CDJ850_STARTUP):
     """The stub for a blob of n_bytes (a multiple of 4), padded to STUB_SIZE."""
     code = struct.pack('>%dH' % len(STUB_CODE), *STUB_CODE)
-    pool = struct.pack('>6I', BLOB_ADDR + STUB_SIZE, REGION | UNCACHED, n_bytes // 4,
-                       GUARD_HI_ADDR | UNCACHED, GUARD_HI, CLEAR)
+    pool = struct.pack('>6I', startup.blob_addr + STUB_SIZE, REGION | UNCACHED, n_bytes // 4,
+                       GUARD_HI_ADDR | UNCACHED, GUARD_HI, startup.clear)
     out = code + pool
     return out + b'\0' * (STUB_SIZE - len(out))
 
 
-def check_stock(image):
-    """Problems that keep `image` from being the v1.13 MAIN the stub was written against."""
-    if len(image) < IMAGE_LEN:
-        return ['image is %#x bytes, not %#x' % (len(image), IMAGE_LEN)]
+def check_stock(image, *, startup=CDJ850_STARTUP):
+    """Problems that keep `image` from being the stock MAIN the stub was written against."""
+    if len(image) < startup.image_len:
+        return ['image is %#x bytes, not %#x' % (len(image), startup.image_len)]
     problems = []
     if image[:ENTRY_LITERAL] != ENTRY:
         problems.append('the entry at %#x is not the one the stub was written for' % BASE)
-    if image[CLEAR - BASE:CLEAR - BASE + len(CLEAR_CODE)] != CLEAR_CODE:
-        problems.append('the start-up clear at %#x is not the one the stub was written for' % CLEAR)
-    bounds = struct.unpack_from('>2I', image, CLEAR_BOUNDS - BASE)
-    if bounds != (STATICS, STATICS_END):
-        problems.append('the cleared statics are %#x-%#x, not %#x-%#x' % (bounds + (STATICS, STATICS_END)))
+    if image[startup.clear - BASE:startup.clear - BASE + len(CLEAR_CODE)] != CLEAR_CODE:
+        problems.append('the start-up clear at %#x is not the one the stub was written for' % startup.clear)
+    bounds = struct.unpack_from('>2I', image, startup.bounds - BASE)
+    if bounds != (startup.statics, startup.statics_end):
+        problems.append('the cleared statics are %#x-%#x, not %#x-%#x' % (bounds + (startup.statics, startup.statics_end)))
     return problems
 
 
-def install(image, payload=b''):
+def install(image, payload=b'', *, startup=CDJ850_STARTUP):
     """(new image, [(offset, size, kind)]) with the loader and `payload` in
     `image`. kind is 'loader' for the entry literal and 'loaderblob' for the
     stub and blob. An image that already carries a loader has it replaced."""
-    image = uninstall(bytes(image))
-    problems = check_stock(image)
-    if not problems and u32(image, ENTRY_LITERAL) != CLEAR:
+    image = uninstall(bytes(image), startup=startup)
+    problems = check_stock(image, startup=startup)
+    if not problems and u32(image, ENTRY_LITERAL) != startup.clear:
         problems.append('the entry literal at %#x is %#x, not %#x'
-                        % (BASE + ENTRY_LITERAL, u32(image, ENTRY_LITERAL), CLEAR))
+                        % (BASE + ENTRY_LITERAL, u32(image, ENTRY_LITERAL), startup.clear))
     if problems:
         raise LoaderError('; '.join(problems))
-    code = stub(len(blob(payload))) + blob(payload)
-    lo = BLOB_ADDR - BASE
-    if lo + len(code) > IMAGE_LEN:
-        raise LoaderError('stub and blob (%d bytes) run past the image end %#x' % (len(code), BASE + IMAGE_LEN))
+    packet = blob(payload)
+    code = stub(len(packet), startup=startup) + packet
+    lo = startup.blob_addr - BASE
+    if lo + len(code) > startup.image_len:
+        raise LoaderError('stub and blob (%d bytes) run past the image end %#x' % (len(code), BASE + startup.image_len))
     if any(image[lo:lo + len(code)]):
-        raise LoaderError('%#x-%#x is not zero in this image' % (BLOB_ADDR, BLOB_ADDR + len(code)))
+        raise LoaderError('%#x-%#x is not zero in this image' % (startup.blob_addr, startup.blob_addr + len(code)))
     out = bytearray(image)
-    out[ENTRY_LITERAL:ENTRY_LITERAL + 4] = struct.pack('>I', BLOB_ADDR)
+    out[ENTRY_LITERAL:ENTRY_LITERAL + 4] = struct.pack('>I', startup.blob_addr)
     out[lo:lo + len(code)] = code
     return bytes(out), [(ENTRY_LITERAL, 4, 'loader'), (lo, len(code), 'loaderblob')]
 
 
-def installed(image):
+def installed(image, *, startup=CDJ850_STARTUP):
     """The payload of the loader `image` carries, or None when its entry is
     stock. Raises LoaderError when the entry was changed but what it reaches is
     not exactly a stub and blob this module writes."""
-    if len(image) < IMAGE_LEN or image[:ENTRY_LITERAL] != ENTRY:
+    if len(image) < startup.image_len or image[:ENTRY_LITERAL] != ENTRY:
         return None
     lit = u32(image, ENTRY_LITERAL)
-    if lit == CLEAR:
+    if lit == startup.clear:
         return None
-    if lit != BLOB_ADDR:
+    if lit != startup.blob_addr:
         raise LoaderError('the entry literal points at %#x, neither the clear nor the stub' % lit)
-    lo = BLOB_ADDR - BASE
+    lo = startup.blob_addr - BASE
     n_bytes = u32(image, lo + POOL + 8) * 4
     if not HEADER <= n_bytes <= HEADER + MAX_PAYLOAD + 3:
         raise LoaderError('the stub copies %d bytes' % n_bytes)
-    if image[lo:lo + STUB_SIZE] != stub(n_bytes):
-        raise LoaderError('the code at %#x is not the loader stub' % BLOB_ADDR)
+    if image[lo:lo + STUB_SIZE] != stub(n_bytes, startup=startup):
+        raise LoaderError('the code at %#x is not the loader stub' % startup.blob_addr)
     data = image[lo + STUB_SIZE:lo + STUB_SIZE + n_bytes]
     problems = check_blob(data)
     if problems:
@@ -204,14 +219,14 @@ def installed(image):
     return payload
 
 
-def uninstall(image):
+def uninstall(image, *, startup=CDJ850_STARTUP):
     """The image without its loader: the stock literal back, the stretch zeroed."""
-    payload = installed(image)
+    payload = installed(image, startup=startup)
     if payload is None:
         return bytes(image)
     out = bytearray(image)
-    out[ENTRY_LITERAL:ENTRY_LITERAL + 4] = struct.pack('>I', CLEAR)
-    lo = BLOB_ADDR - BASE
+    out[ENTRY_LITERAL:ENTRY_LITERAL + 4] = struct.pack('>I', startup.clear)
+    lo = startup.blob_addr - BASE
     n = STUB_SIZE + len(blob(payload))
     out[lo:lo + n] = bytes(n)
     return bytes(out)
@@ -235,39 +250,39 @@ def check_blob(data):
     return problems
 
 
-def verify(stock, out):
+def verify(stock, out, *, startup=CDJ850_STARTUP):
     """Problems with the loader in `out`, judged against the stock image: its
     only writes may be the entry literal, and the stub and blob over zeros of
     the cleared statics inside the image. [] when `out` has no loader."""
     try:
-        payload = installed(out)
+        payload = installed(out, startup=startup)
     except LoaderError as e:
         return [str(e)]
     if payload is None:
         return []
-    problems = check_stock(stock)
-    if not problems and u32(stock, ENTRY_LITERAL) != CLEAR:
-        problems.append('the stock entry literal is not %#x' % CLEAR)
+    problems = check_stock(stock, startup=startup)
+    if not problems and u32(stock, ENTRY_LITERAL) != startup.clear:
+        problems.append('the stock entry literal is not %#x' % startup.clear)
     if problems:
         return problems
-    lo, n = BLOB_ADDR - BASE, STUB_SIZE + len(blob(payload))
-    if not (STATICS <= BLOB_ADDR and BLOB_ADDR + n <= BASE + IMAGE_LEN):
+    lo, n = startup.blob_addr - BASE, STUB_SIZE + len(blob(payload))
+    if not (startup.statics <= startup.blob_addr and startup.blob_addr + n <= BASE + startup.image_len):
         problems.append('stub and blob are not inside the cleared statics of the image')
     elif any(stock[lo:lo + n]):
-        problems.append('the stock image is not zero at %#x-%#x' % (BLOB_ADDR, BLOB_ADDR + n))
+        problems.append('the stock image is not zero at %#x-%#x' % (startup.blob_addr, startup.blob_addr + n))
     return problems
 
 
-def spans(stock, out):
+def spans(stock, out, *, startup=CDJ850_STARTUP):
     """[(offset, size, kind)] of the loader's writes in `out`, as install()
     reports them, or [] when `out` carries no loader verify() accepts."""
     try:
-        payload = installed(out)
+        payload = installed(out, startup=startup)
     except LoaderError:
         return []
-    if payload is None or verify(stock, out):
+    if payload is None or verify(stock, out, startup=startup):
         return []
-    return [(ENTRY_LITERAL, 4, 'loader'), (BLOB_ADDR - BASE, STUB_SIZE + len(blob(payload)), 'loaderblob')]
+    return [(ENTRY_LITERAL, 4, 'loader'), (startup.blob_addr - BASE, STUB_SIZE + len(blob(payload)), 'loaderblob')]
 
 
 def check_ram(dump, base=REGION):

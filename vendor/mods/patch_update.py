@@ -69,7 +69,7 @@ installs over stock and over any earlier modded build, and the stock file
 "Ver 0.13". --version D.DD sets another label, --keep-version keeps the
 input's (a file labelled like the running firmware is skipped). The label
 is outside the summed bytes. A "0.DD" input counts as firmware 1.DD for the
-mods' version check. Other models are unchanged.
+mods' version check. The CDJ-350 v1.14 uses the same version comparison and defaults to 0.14.
 
 THIS IS UNTESTED ON REAL HARDWARE. The container repacks correctly and the
 patched image has been proven identical to patch_gui.py's/patch_main.py's own
@@ -153,9 +153,9 @@ def _decode_target(target, section, fw):
     raise SystemExit('patch_update: unsupported target/container %s/%s' % (target, fw.container))
 
 
-def _encode_target(target, section, image, fw):
+def _encode_target(target, section, image, fw, model=modelfw.DEFAULT_MODEL):
     if target == 'main' and fw.container == 'c850':
-        return c850_repack.build_upd(section, image, check_boot=True)
+        return c850_repack.build_upd(section, image, check_boot=True, model=model)
     raise SystemExit('patch_update: unsupported target/container %s/%s' % (target, fw.container))
 
 
@@ -198,7 +198,7 @@ def main():
     args = [a for a in args if a != '--force-version']
     label_opt, args = label_option(args)
     if label_opt[0] != 'default' and modelfw.load(model).container != 'c850':
-        die('--version/--keep-version only apply to the CDJ-850 (c850) container')
+        die('--version/--keep-version only apply to flat CDJ updates')
 
     reg = registry(model)
     rows = {key: [n for n in knobs if n in reg] for key, knobs in conf_rows().items()}
@@ -284,7 +284,7 @@ def main():
             profiles[target] = mod.PATCH_SETS[model].profile
         elif target == 'main':
             profiles[target] = validate.default_main_profile(model)
-        sections[idx] = _encode_target(target, section, patched, fw)
+        sections[idx] = _encode_target(target, section, patched, fw, model)
         if target == 'main' and fw.container == 'c850':
             label, why = c850_label(section, label_opt)
             sections[idx] = c850_repack.set_version(sections[idx], label)

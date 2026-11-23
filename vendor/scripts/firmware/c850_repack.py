@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Unpack, repack and check the CDJ-850's C850MAIN.UPD.
+"""Unpack, repack and check flat CDJ-850 and CDJ-350 updates.
 
     c850_repack.py unpack <in.UPD> <image.bin>
     c850_repack.py pack   [--version D.DD] <base.UPD> <image.bin> <out.UPD>
     c850_repack.py check  <file.UPD>
 
-What the firmware itself does with the file (docs/cdj850-modding.md,
+What the CDJ-850 firmware does with the file (docs/cdj850-modding.md,
 "Firmware Container (C850MAIN.UPD), Flash Layout & Bootloader", has the addresses):
 
 * The updater in MAIN (0x0C08EC44) reads C:/C850MAIN.UPD into a 0xFF-filled
@@ -70,6 +70,12 @@ RECOVERY_OFF = 0x20000       # bootloader's fallback image (same format)
 
 STOCK_BOOT_SHA256 = (
     "eb4f9f9885d6157d7521b13a18b20f685706152fabfe3ef2c3f6c9a5cd51d58c")
+# Both models use the same compressed layout. Pin each boot region and label
+# independently because a model's updater can write its boot region as well.
+FLAT_MODELS = {
+    "cdj850": (b"CDJ-850 MAIN", STOCK_BOOT_SHA256),
+    "cdj350": (b"CDJ-350 MAIN", "8934d314696e8f7b456eb3fe4e97ce1dd2c0c43c4f31e996914735da21b07cbd"),
+}
 STOCK_IMAGE_LEN = 0x38FFE0
 STOCK_IMAGE_SHA256 = (
     "a048888cec0352136d7eefc3e3d1d44bde6cea52476e28a2f7636902b5d52a75")
@@ -167,16 +173,19 @@ def base_version(label):
     return label
 
 
-def build_upd(base, image, check_boot=True, version=None):
+def build_upd(base, image, check_boot=True, version=None, *, model="cdj850"):
     """A new update file: base's bytes below 0x60020 (boot, recovery,
     label), then length, LZSS stream, checksum and the 64 KB zero pad."""
     if len(base) < PACKED_OFF:
         raise ValueError("base file too short")
+    label, boot_hash = FLAT_MODELS[model]
+    if base[LABEL_OFF:LABEL_OFF + len(label)] != label:
+        raise ValueError("base file is missing the %s label" % label.decode())
     if check_boot:
         got = hashlib.sha256(base[:0x40000]).hexdigest()
-        if got != STOCK_BOOT_SHA256:
+        if got != boot_hash:
             raise ValueError(
-                "base boot region is not the shipped v1.13 one (sha256 %s);"
+                "base boot region is not the shipped one (sha256 %s);"
                 " the updater reflashes it, refusing" % got)
     if version is not None:
         base = set_version(base, version)
@@ -190,24 +199,25 @@ def build_upd(base, image, check_boot=True, version=None):
             "(%d bytes over)" % (end, MAIN_END, end - MAIN_END))
     out = (base[:PACKED_OFF] + packed + struct.pack(">H", sum16(packed))
            + bytes(PAD_LEN))
-    problems = check_upd(out, image=image, check_boot=check_boot)
+    problems = check_upd(out, image=image, check_boot=check_boot, model=model)
     if problems:
         raise ValueError("self-check failed: " + "; ".join(problems))
     return out
 
 
-def check_upd(upd, image=None, check_boot=True):
+def check_upd(upd, image=None, check_boot=True, *, model="cdj850"):
     """Everything the bootloader and updater would object to, as a list of
     strings (empty = fine)."""
     problems = []
     if len(upd) > 0x400000:
         problems.append("file is %d bytes, over the updater's 4 MB buffer"
                         % len(upd))
-    if not upd[LABEL_OFF:LABEL_OFF + 12] == b"CDJ-850 MAIN":
-        problems.append("no 'CDJ-850 MAIN' label at 0x60000")
+    label, boot_hash = FLAT_MODELS[model]
+    if upd[LABEL_OFF:LABEL_OFF + len(label)] != label:
+        problems.append("no '%s' label at 0x60000" % label.decode())
     if check_boot:
         got = hashlib.sha256(upd[:0x40000]).hexdigest()
-        if got != STOCK_BOOT_SHA256:
+        if got != boot_hash:
             problems.append("boot region differs from the shipped one")
     for name, off in (("MAIN", PACKED_OFF), ("recovery", RECOVERY_OFF)):
         try:

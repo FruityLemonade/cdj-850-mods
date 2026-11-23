@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #include "decoder.h"
+#include "flac_stock.h"
 #include <string.h>
 
-/* Unmodified v1.13 file routines. Only USB audio calls are redirected. */
-#define stock_read ((int (*)(void *, int, int, void *))0x0c10e330)
-#define stock_seek ((int (*)(void *, int, int))0x0c10e434)
-#define stock_tell ((int (*)(void *))0x0c10e468)
-#define stock_size ((int (*)(void *, uint32_t *))0x0c10e7c8)
-#define stock_close ((int (*)(void *))0x0c10e246)
+/* Stock USB file calls, reached through the per-model address map. */
+#define stock_read ((int (*)(void *, int, int, void *))FLAC_STOCK_READ)
+#define stock_seek ((int (*)(void *, int, int))FLAC_STOCK_SEEK)
+#define stock_tell ((int (*)(void *))FLAC_STOCK_TELL)
+#define stock_size ((int (*)(void *, uint32_t *))FLAC_STOCK_SIZE)
+#define stock_close ((int (*)(void *))FLAC_STOCK_CLOSE)
 extern int flac_stock_classify(unsigned drive, const void *entry, int mode, int flags);
 /* flac_stack.s: calls fn(op, arg, value) on the decoder's private stack. */
 extern int flac_on_stack(int (*fn)(int, void *, uint32_t), int op, void *arg, uint32_t value);
@@ -168,8 +169,7 @@ static void write_le32(uint8_t *p, uint32_t value)
         p[i] = (uint8_t)(value >> (i * 8));
 }
 
-/* The stock parser (wav_header_parse, 0x0C08CA8E) maps the fmt rate to its
- * rate index; pcm_rate_copy resamples anything but 44.1 kHz for the DSP. */
+/* The stock WAV path resamples other rates to 44.1 kHz for the DSP. */
 static void wav_header(uint8_t *header, uint32_t size, uint32_t rate)
 {
     static const uint8_t template[WAV_HEADER_SIZE] = {
@@ -188,9 +188,9 @@ static void wav_header(uint8_t *header, uint32_t size, uint32_t rate)
 static void *current_audio_file(void)
 {
     /* The stock open dispatcher records 0 for USB and 1 for optical media. */
-    if (*(const volatile int *)0x0c1c18e0 != 0)
+    if (*(const volatile int *)FLAC_AUDIO_SOURCE != 0)
         return NULL;
-    return *(void *volatile *)0x0c1c18dc;
+    return *(void *volatile *)FLAC_AUDIO_HANDLE;
 }
 
 static int virtual_read(VirtualFile *file, void *dst, uint32_t count, uint32_t position)
@@ -251,7 +251,7 @@ int flac_wav_header_read(int track, uint32_t offset, uint32_t count,
     VirtualFile *file = find(current_audio_file());
     if (!file) {
         typedef int (*StockRead)(int, uint32_t, uint32_t, uint32_t *, uint8_t **);
-        return ((StockRead)0x0c000cc4)(track, offset, count, read_count, result);
+        return ((StockRead)FLAC_STOCK_HEADER)(track, offset, count, read_count, result);
     }
     static uint8_t header_buffer[0x40];
     if (count > sizeof(header_buffer) || offset >= WAV_HEADER_SIZE) {
@@ -275,7 +275,7 @@ int flac_wav_pcm_read(int track, uint32_t offset, uint32_t count,
     VirtualFile *file = find(current_audio_file());
     if (!file) {
         typedef int (*StockRead)(int, uint32_t, uint32_t, uint32_t *, void *);
-        return ((StockRead)0x0c0be3e4)(track, offset, count, read_count, destination);
+        return ((StockRead)FLAC_STOCK_PCM)(track, offset, count, read_count, destination);
     }
     int bytes = virtual_read(file, destination, count, offset);
     if (bytes < 0)
@@ -300,7 +300,7 @@ int flac_file_close(void *handle)
 int flac_audio_open(int source, int list, int track, uint32_t *size, char *extension)
 {
     typedef int (*OpenAudio)(int, int, int, uint32_t *, char *);
-    int file = ((OpenAudio)0x0c057ce4)(source, list, track, size, extension);
+    int file = ((OpenAudio)FLAC_STOCK_OPEN)(source, list, track, size, extension);
     if (source == 1 && file >= 0 && memcmp(extension, "FLAC", 4) == 0) {
         extension[0] = 'W';
         extension[1] = 'A';
