@@ -20,6 +20,8 @@ OPTIONS = {
     "loop_resize": ("Loop resize", "While a loop plays, use CUE/LOOP CALL to halve or double its length."),
     "bpm999": ("BPM up to 999", "Raise the tempo ceiling for rekordbox grids and the panel display."),
     "bpm_decimals": ("BPM decimals", "Show the actual BPM to two decimal places in place of the rekordbox BPM in the INFO view, on grid tracks."),
+    "bpm_lock": ("BPM lock", "Lock tracks to a Master BPM across ±100% range (auto-switches to WIDE beyond ±16%). Hold BEAT SELECT + MASTER TEMPO for 1 s to set Master BPM with the rotary selector; short-press to toggle lock on/off."),
+    "phase_meter": ("Phase meter", "Show a 4-beat bar counter and sub-beat phase indicator on INFO Page 2 (shifting stock INFO pages down by one page). Works with BPM lock on or off."),
     "info_order": ("INFO screen order", "Show playing BPM, Camelot key and rekordbox rating beneath the USB track title (e.g. 128.23 12A *****). Turn the jog in INFO to see Artist, Rating and Key, then Album and Comment."),
     "auto_standby": ("20-minute auto standby", "Shorten the idle timeout to 20 minutes when AUTO STANDBY is enabled."),
 }
