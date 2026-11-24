@@ -118,24 +118,38 @@ void c850_ui_tick(void)
 
 /* ---- mod flags ---- */
 
-/* The HISTORY name ends before the flags byte (a 31-character name holds it). */
-static int ui_name_short(void)
+/* The HISTORY name ends before the flag byte(s) (limit 0x1F for +0x22, 0x1E for +0x21). */
+static int ui_name_short(u32 limit)
 {
     u32 k;
 
-    for (k = 0; k < 0x1F; k++)
+    for (k = 0; k < limit; k++)
         if (C850_U8(UI_NAME + k) == 0)
             return 1;
     return 0;
 }
 
-static u32 ui_flags(void)
+static u32 ui_flags1(void)
 {
     u32 b = C850_UI_FLAGS_BYTE;
 
-    if ((b & 0xF0) != 0x50 || !ui_name_short())
+    if ((b & 0xF0) != 0x50 || !ui_name_short(0x1F))
         return 0;
     return b & C850_UI_FLAGS_MASK;
+}
+
+static u32 ui_flags2(void)
+{
+    u32 b = C850_UI_FLAGS2_BYTE;
+
+    if ((b & 0xF0) != 0x50 || !ui_name_short(0x1E))
+        return 0;
+    return b & C850_UI_FLAGS2_MASK;
+}
+
+static u32 ui_flags(void)
+{
+    return ui_flags1() | (ui_flags2() << 4);
 }
 
 int c850_ui_flag(u32 flag)
@@ -143,17 +157,29 @@ int c850_ui_flag(u32 flag)
     return (ui_flags() & flag) != 0;
 }
 
-int c850_ui_set_flag(u32 flag, int on)
+int c850_ui_set_flags(u32 mask, u32 value)
 {
-    u32 v;
+    u32 m1 = mask & C850_UI_FLAGS_MASK;
+    u32 m2 = (mask >> 4) & C850_UI_FLAGS2_MASK;
+    u32 v1, v2;
 
-    if (!ui_name_short())
+    if ((m2 && !ui_name_short(0x1E)) || (m1 && !ui_name_short(0x1F)))
         return 0;
-    v = ui_flags();
-    v = on ? (v | flag) : (v & ~flag);
-    C850_UI_FLAGS_BYTE = v ? (u8)(C850_UI_FLAGS_MAGIC | v) : 0;
+    if (m1) {
+        v1 = (ui_flags1() & ~m1) | (value & m1);
+        C850_UI_FLAGS_BYTE = v1 ? (u8)(C850_UI_FLAGS_MAGIC | v1) : 0;
+    }
+    if (m2) {
+        v2 = (ui_flags2() & ~m2) | ((value >> 4) & m2);
+        C850_UI_FLAGS2_BYTE = v2 ? (u8)(C850_UI_FLAGS2_MAGIC | v2) : 0;
+    }
     UI_SETTINGS_SAVE(2, C850_SETTINGS);
     return 1;
+}
+
+int c850_ui_set_flag(u32 flag, int on)
+{
+    return c850_ui_set_flags(flag, on ? flag : 0u);
 }
 
 int c850_ui_quantize(void)

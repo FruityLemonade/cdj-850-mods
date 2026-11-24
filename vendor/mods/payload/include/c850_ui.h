@@ -57,16 +57,21 @@ typedef void c850_ui_tick_fn(void);
     static c850_ui_tick_fn *const c850_ui_tick_##fn \
         __attribute__((used, section(".c850_ui_ticks"))) = fn
 
-/* ---- mod flags (settings record +0x22) ---- */
-#define C850_UI_FLAGS_BYTE      C850_U8(C850_SETTINGS + 0x22)
-#define C850_UI_FLAGS_MAGIC     0x52            /* written with any flag set; 0 = none */
-#define C850_UI_FLAG_QUANT_OFF  0x01            /* quantize off (default on) */
-#define C850_UI_FLAG_HOT_CUES   0x08            /* hot-cue mode on */
-#define C850_UI_FLAG_WAVE_LEFT  0x04
-#define C850_UI_FLAGS_MASK      (C850_UI_FLAG_QUANT_OFF | C850_UI_FLAG_HOT_CUES | C850_UI_FLAG_WAVE_LEFT)
+/* ---- mod flags (settings record +0x22, +0x21) ---- */
+#define C850_UI_FLAGS_BYTE       C850_U8(C850_SETTINGS + 0x22)
+#define C850_UI_FLAGS2_BYTE      C850_U8(C850_SETTINGS + 0x21)
+#define C850_UI_FLAGS_MAGIC      0x52            /* written with any flag set; 0 = none */
+#define C850_UI_FLAGS2_MAGIC     0x50            /* written with any ext flag set; 0 = none */
+#define C850_UI_FLAG_QUANT_OFF   0x01            /* quantize off (default on) */
+#define C850_UI_FLAG_HOT_CUES    0x08            /* hot-cue mode on */
+#define C850_UI_FLAG_WAVE_LEFT   0x04
+#define C850_UI_FLAGS_MASK       (C850_UI_FLAG_QUANT_OFF | C850_UI_FLAG_HOT_CUES | C850_UI_FLAG_WAVE_LEFT)
+#define C850_UI_FLAG_WAVE_CENTER 0x10            /* stored in +0x21 bit 0 */
+#define C850_UI_FLAGS2_MASK      0x01
 
 int c850_ui_flag(u32 flag);                     /* 1 = set */
 int c850_ui_set_flag(u32 flag, int on);         /* 1 = changed and saved, 0 = no room (long name) */
+int c850_ui_set_flags(u32 mask, u32 value);     /* atomic multi-flag update + single save */
 int c850_ui_quantize(void);                     /* 1 = grid snapping on */
 
 /* ---- display flash ---- */

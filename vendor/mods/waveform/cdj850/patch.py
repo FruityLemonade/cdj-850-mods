@@ -58,14 +58,14 @@ MODS = {
         old=0x0C0E4DF6, routine='payload:waveform_utility_scroll',
     ),
     'waveform_utility_select': PoolRedirect(
-        what='Waveform: switch between Center and Left in UTILITY',
+        what='Waveform: cycle playhead between Left 1/3, Center, and Left in UTILITY',
         target='main', fw_versions=('1.13',),
         anchor=Anchor(sig=[0x3551, 0x8000, 0xD22A, 0x420B, 0xE403, 0xA1CF, 0x0009],
                       index=2, literal=True),
         old=0x0C0E4C14, routine='payload:waveform_utility_select',
     ),
     'waveform_center_marker': PoolRedirect(
-        what='Waveform: mark the centered playhead on the red cue strip',
+        what='Waveform: mark playhead and active loop span on the red cue strip',
         target='main', fw_versions=('1.13',),
         anchor=Anchor(sig=[0x430B, 0x2610, 0xD33A, 0x434B,
                            0xD435, 0x6042, 0xE700], index=2, literal=True),
