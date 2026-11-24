@@ -46,11 +46,6 @@
 #define WF_DROPOUT_HOLD_FRAMES ((s32)((WF_DROPOUT_HOLD_MS * 75u + 999u) / 1000u))
 
 #define WF_MODE_TITLE        10u  /* INFO Page 1 (title + artist/BPM + waveform) */
-#define WF_MODE_UTILITY      12u
-#define WF_UTILITY_LEVEL     C850_U8(0x0C1E108C)
-#define WF_UTILITY_CURSOR    C850_U8(0x0C1E108D)
-#define WF_UTILITY_TIMEOUT   C850_U32(0x0C1E1078)
-#define WF_UTILITY_ITEM      7u   /* follows VERSION No. (item 6) */
 #define WF_TX_LAST           C850_U32(0x0C9D0AC0)
 #define WF_TX_FRAMES         0x0C9D07D0u
 #define WF_SLOT_VALID_BIT    0x80000000u
@@ -128,62 +123,31 @@ static u32 wf_effective_loop_out(u32 in)
     return C850_LOOP_OUT_FRAME;
 }
 
-void waveform_utility_scroll(s8 direction, u8 steps)
+/* UTILITY: WAVE PLAYHEAD, the first mod item after VERSION No. (c850_ui.c
+ * owns the list; the encoder press cycles Left 1/3 -> Center -> Left). */
+static const char *wf_utility_value(void)
 {
-    s32 item = (s32)WF_UTILITY_CURSOR;
-    s32 next = item + (direction == 1 ? (s32)steps : -(s32)steps);
-
-    if (!waveform_on || (item < (s32)WF_UTILITY_ITEM && next < (s32)WF_UTILITY_ITEM)) {
-        C850_FN(0x0C0E4DF6, void, (s8, u8))(direction, steps);
-        return;
-    }
-    if (next < 0)
-        next = 0;
-    if (next > (s32)WF_UTILITY_ITEM)
-        next = (s32)WF_UTILITY_ITEM;
-    WF_UTILITY_TIMEOUT = 15000u;
-    if (next != item) {
-        WF_UTILITY_CURSOR = (u8)next;
-        C850_FN(0x0C06F71C, void, (int))(1);
-    }
+    return waveform_on ? wf_playhead_label(wf_playhead_pos()) : 0;
 }
 
-void waveform_utility_select(u32 level, int item)
+static void wf_utility_select(void)
 {
-    u32 next, flags;
+    u32 next = (wf_playhead_pos() + 1u) % WF_POS_COUNT;
+    u32 flags = (next == WF_POS_LEFT) ? C850_UI_FLAG_WAVE_LEFT
+              : (next == WF_POS_CENTER) ? C850_UI_FLAG_WAVE_CENTER
+              : 0u;
 
-    if (!waveform_on || level != 3u || item != (int)WF_UTILITY_ITEM) {
-        C850_FN(0x0C0E4C14, void, (u32, int))(level, item);
-        return;
-    }
-    next = (wf_playhead_pos() + 1u) % WF_POS_COUNT;
-    flags = (next == WF_POS_LEFT) ? C850_UI_FLAG_WAVE_LEFT
-          : (next == WF_POS_CENTER) ? C850_UI_FLAG_WAVE_CENTER
-          : 0u;
     if (c850_ui_set_flags(WF_POS_FLAGS_MASK, flags))
         wf_position_override = 0;
     else
         wf_position_override = (u8)(next + 1u);
     wf_force_redraw = 1;
-    WF_UTILITY_TIMEOUT = 15000u;
-    C850_FN(0x0C06F71C, void, (int))(1);
 }
 
-static void wf_utility_row(u32 row, u8 tag, u8 arrows, const char *text)
-{
-    volatile u8 *record = (volatile u8 *)(0x0C9D0B18u + row * 0x105u);
-    u8 len = 0;
-
-    record[0] = tag;
-    record[1] = 0;
-    record[2] = arrows;
-    record[3] = 0;
-    while (text[len] != '\0') {
-        record[5u + len] = (u8)text[len];
-        len++;
-    }
-    record[4] = len;
-}
+static const c850_ui_utility_item wf_utility_item = {
+    10u, "WAVE PLAYHEAD", wf_utility_value, wf_utility_select,
+};
+C850_UI_UTILITY_ITEM(wf_utility_item);
 
 static void wf_set_red_col(volatile u8 *frame, u32 col)
 {
@@ -479,11 +443,7 @@ void waveform_hook(u32 *regs, u32 *sp)
 
     if (C850_DISPLAY_MODE != WF_MODE_TITLE) {
         wf_was_mode10 = 0;
-        if (C850_DISPLAY_MODE == WF_MODE_UTILITY && WF_UTILITY_LEVEL == 2u &&
-            WF_UTILITY_CURSOR == WF_UTILITY_ITEM) {
-            wf_utility_row(1, 0x06, 0x0B, "WAVE PLAYHEAD");
-            wf_utility_row(2, 0x43, 0, wf_playhead_label(wf_playhead_pos()));
-        }
+        c850_ui_utility_draw();
         return;
     }
 

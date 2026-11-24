@@ -6,7 +6,9 @@
  * Built once into the payload when any built mod names 'c850_ui' in
  * PAYLOAD_COMMON (mods/payloadbuild.py). Users: hot_cues (BEAT SELECT +
  * RELOOP, hot-cue mode), quant_loops (BEAT SELECT + LOOP IN, quantize),
- * loop_resize (reads the quantize flag).
+ * loop_resize (reads the quantize flag), loop_roll (BEAT SELECT + LOOP OUT,
+ * roll mode, kept in RAM: the flags byte has no free bit); the UTILITY items
+ * after VERSION No. (waveform: WAVE PLAYHEAD, quant_loops: QUANTIZE DRIFT).
  */
 #include "c850_ui.h"
 
@@ -187,6 +189,127 @@ int c850_ui_quantize(void)
     return !c850_ui_flag(C850_UI_FLAG_QUANT_OFF);
 }
 
+/* ---- UTILITY items ---- */
+
+#define UI_UTIL_MODE        12u
+#define UI_UTIL_LEVEL       C850_U8(0x0C1E108C)
+#define UI_UTIL_CURSOR      C850_U8(0x0C1E108D)
+#define UI_UTIL_TIMEOUT     C850_U32(0x0C1E1078)
+#define UI_UTIL_SCROLL      C850_FN(0x0C0E4DF6, void, (s8, u8))   /* utility_scroll_item */
+#define UI_UTIL_SET_LEVEL   C850_FN(0x0C0E4C14, void, (u32, int)) /* utility_set_menu_level */
+#define UI_UTIL_REDRAW      C850_FN(0x0C06F71C, void, (int))
+#define UI_UTIL_MAX         8u
+
+const c850_ui_utility_item *const c850_ui_items_start[1]
+    __attribute__((used, section(".c850_ui_items.a"))) = {0};
+const c850_ui_utility_item *const c850_ui_items_end[1]
+    __attribute__((used, section(".c850_ui_items.z"))) = {0};
+
+volatile u32 c850_ui_utility_selects;  /* evidence: presses on a mod item */
+
+/* The visible items in ascending order; returns how many. */
+static u32 ui_util_items(const c850_ui_utility_item **out)
+{
+    u32 f, end = (u32)c850_ui_items_end, n = 0, i;
+    const c850_ui_utility_item *it;
+
+    for (f = (u32)(c850_ui_items_start + 1); f < end && n < UI_UTIL_MAX; f += 4) {
+        it = *(const c850_ui_utility_item *const *)f;
+        if (it->value() == 0)
+            continue;
+        for (i = n; i > 0 && out[i - 1]->order > it->order; i--)
+            out[i] = out[i - 1];
+        out[i] = it;
+        n++;
+    }
+    return n;
+}
+
+static const c850_ui_utility_item *ui_util_item(u32 cursor)
+{
+    const c850_ui_utility_item *items[UI_UTIL_MAX];
+    u32 n = ui_util_items(items);
+
+    if (cursor < C850_UI_UTILITY_FIRST || cursor - C850_UI_UTILITY_FIRST >= n)
+        return 0;
+    return items[cursor - C850_UI_UTILITY_FIRST];
+}
+
+/* Pool 0x0C0E797C (read at 0x0C0E77C4): rotary in UTILITY level 2, 0 = CCW,
+ * 1 = CW. Stock clamps at item 6; the mod items continue the list. */
+void c850_ui_utility_scroll(s8 direction, u8 steps)
+{
+    const c850_ui_utility_item *items[UI_UTIL_MAX];
+    s32 item = (s32)UI_UTIL_CURSOR;
+    s32 next = item + (direction == 1 ? (s32)steps : -(s32)steps);
+    s32 last = (s32)C850_UI_UTILITY_FIRST - 1 + (s32)ui_util_items(items);
+
+    if (item < (s32)C850_UI_UTILITY_FIRST && next < (s32)C850_UI_UTILITY_FIRST) {
+        UI_UTIL_SCROLL(direction, steps);
+        return;
+    }
+    if (next < 0)
+        next = 0;
+    if (next > last)
+        next = last;
+    UI_UTIL_TIMEOUT = 15000u;
+    if (next != item) {
+        UI_UTIL_CURSOR = (u8)next;
+        UI_UTIL_REDRAW(1);
+    }
+}
+
+/* Pool 0x0C0E7F10 (read at 0x0C0E7E64): encoder press in the UTILITY list,
+ * stock utility_set_menu_level(3, item). A mod item switches its value in
+ * place (the list stays at level 2). */
+void c850_ui_utility_select(u32 level, int item)
+{
+    const c850_ui_utility_item *it = 0;
+
+    if (level == 3u && item >= (int)C850_UI_UTILITY_FIRST)
+        it = ui_util_item((u32)item);
+    if (it == 0) {
+        UI_UTIL_SET_LEVEL(level, item);
+        return;
+    }
+    it->select();
+    c850_ui_utility_selects++;
+    UI_UTIL_TIMEOUT = 15000u;
+    UI_UTIL_REDRAW(1);
+}
+
+static void ui_util_row(u32 row, u8 tag, u8 arrows, const char *text)
+{
+    volatile u8 *record = (volatile u8 *)C850_MATRIX_ROW(row);
+    u8 len = 0;
+
+    record[0] = tag;
+    record[1] = 0;
+    record[2] = arrows;
+    record[3] = 0;
+    while (text[len] != '\0') {
+        record[5u + len] = (u8)text[len];
+        len++;
+    }
+    record[4] = len;
+}
+
+/* Rows 1 (title, scroll arrows) and 2 (value) of the UTILITY list on a mod
+ * item, as stock writes them for its own items. */
+void c850_ui_utility_draw(void)
+{
+    const c850_ui_utility_item *it;
+
+    if (C850_U32(0x0C9D0AF8) != UI_UTIL_MODE || UI_UTIL_LEVEL != 2u ||
+        UI_UTIL_CURSOR < C850_UI_UTILITY_FIRST)
+        return;
+    it = ui_util_item(UI_UTIL_CURSOR);
+    if (it == 0)
+        return;
+    ui_util_row(1, 0x06, 0x0B, it->title);
+    ui_util_row(2, 0x43, 0, it->value());
+}
+
 /* ---- display flash ----
  * Rows (section 4b.7): three records [tag, attr0, attr1, attr2, len, text]
  * at 0x0C9D0B18 + r*0x105, serialised for the panel by FUN_0C064CA4 after
@@ -286,6 +409,7 @@ void c850_ui_flash_hook(u32 *regs, u32 *sp)
 
     (void)regs;
     (void)sp;
+    c850_ui_utility_draw();
     if (req != fl_seen) {
         const u8 *t = (const u8 *)fl_text;
         u32 n = 0;

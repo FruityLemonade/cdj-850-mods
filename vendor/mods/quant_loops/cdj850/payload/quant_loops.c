@@ -549,8 +549,45 @@ void quant_loops_loop_out(int cmd, int flag, u32 a3, int mode, int sector, int a
 #define QL_D155             C850_U8(0x0CE6D155)
 #define QL_D156             C850_U8(0x0CE6D156)
 
-/* Run-time switch (1 = correct; 0 = loops play the out they were given). */
+/* Run-time switch (1 = correct; 0 = loops play the out they were given).
+ * Correction also needs the on-deck setting (UTILITY QUANTIZE DRIFT, ql_drift). */
 volatile u32 quant_loops_drift_on = 1;
+
+/* A full HISTORY name leaves no room for the flag: keep the choice in RAM
+ * until power-off (0 = none, 1 = on, 2 = off). */
+static u8 qd_override;
+
+static int ql_drift(void)
+{
+    if (qd_override != 0u)
+        return qd_override == 1u;
+    return !c850_ui_flag(C850_UI_FLAG_DRIFT_OFF);
+}
+
+/* UTILITY: QUANTIZE DRIFT ON/OFF after VERSION No. (and after WAVE PLAYHEAD
+ * when waveform is built in); c850_ui.c owns the list. Saved in the mod flags
+ * (settings +0x21 bit 1); a fresh deck has drift correction on. */
+static const char *ql_utility_value(void)
+{
+    if (!quant_loops_on)
+        return 0;
+    return ql_drift() ? "ON" : "OFF";
+}
+
+static void ql_utility_select(void)
+{
+    int on = !ql_drift();
+
+    if (c850_ui_set_flag(C850_UI_FLAG_DRIFT_OFF, !on))
+        qd_override = 0;
+    else
+        qd_override = on ? 1u : 2u;
+}
+
+static const c850_ui_utility_item ql_utility_item = {
+    20u, "QUANTIZE DRIFT", ql_utility_value, ql_utility_select,
+};
+C850_UI_UTILITY_ITEM(ql_utility_item);
 
 /* Evidence for tests (the loop being tracked). */
 volatile u32 quant_loops_drift_ticks;      /* tick calls */
@@ -728,7 +765,7 @@ void quant_loops_drift_tick(void)
 
     quant_loops_drift_ticks++;
     qd_track();
-    if (!ql_on() || !quant_loops_drift_on || C850_IS_USB_MODE != 1 ||
+    if (!ql_on() || !quant_loops_drift_on || !ql_drift() || C850_IS_USB_MODE != 1 ||
         C850_LOOP_ACTIVE != 1 || C850_PLAYER_STATE != C850_STATE_LOOPING) {
         qd_have = 0;
         return;

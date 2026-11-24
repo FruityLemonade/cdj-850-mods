@@ -51,18 +51,18 @@ MODS = {
         **ROTARY_INFO_SITE,
     ),
     'waveform_utility_scroll': PoolRedirect(
-        what='Waveform: scroll to the playhead setting after VERSION No.',
+        what='Waveform: UTILITY list continues after VERSION No. (shared c850_ui items)',
         target='main', fw_versions=('1.13',),
         anchor=Anchor(sig=[0x35F1, 0x4020, 0xD26D, 0x424B, 0xD56D, 0xB6CC, 0x6450],
                       index=2, literal=True),
-        old=0x0C0E4DF6, routine='payload:waveform_utility_scroll',
+        old=0x0C0E4DF6, routine='payload:c850_ui_utility_scroll',
     ),
     'waveform_utility_select': PoolRedirect(
         what='Waveform: cycle playhead between Left 1/3, Center, and Left in UTILITY',
         target='main', fw_versions=('1.13',),
         anchor=Anchor(sig=[0x3551, 0x8000, 0xD22A, 0x420B, 0xE403, 0xA1CF, 0x0009],
                       index=2, literal=True),
-        old=0x0C0E4C14, routine='payload:waveform_utility_select',
+        old=0x0C0E4C14, routine='payload:c850_ui_utility_select',
     ),
     'waveform_center_marker': PoolRedirect(
         what='Waveform: mark playhead and active loop span on the red cue strip',
