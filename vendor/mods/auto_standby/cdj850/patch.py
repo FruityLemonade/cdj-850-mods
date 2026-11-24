@@ -1,56 +1,70 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""auto_standby on the CDJ-850 MAIN 1.13: AUTO STANDBY timeout in minutes.
+"""auto_standby on the CDJ-850 MAIN 1.13: AUTO STANDBY timeout in UTILITY (20/40/60/120 min).
 
-The idle countdown is FUN_0c0ef844 (0x0C0EF844). It counts whole seconds in
-the u16 at 0x0C1E10AE and, once the seconds count reaches the limit read from
-the table at 0x0C18CCDC, asks for standby. The table is indexed by
-(FUN_0c08f186() & 0xff), where FUN_0c08f186 returns the 3-bit field
-(UTILITY byte 0x0C9DA23E >> 4) & 7. Index 0 (AUTO STANDBY OFF) is gated out
-before the comparison, and index 1 (AUTO STANDBY ON) holds the stock limit
-0x3840 = 14400 s = 4 hours (u16 BE). Only that one u16 is rewritten, so the
-OFF gate, the playing/source gate and the standby request path are unchanged.
-
-Knob: CDJ850_STANDBY_MINUTES (integer, 1..1092; default 20). 1092 minutes is
-the largest value whose seconds count fits the u16 (65520 s).
+The idle countdown is FUN_0c0ef844 (0x0C0EF844). At entry it calls FUN_0C08F186()
+through pool 0x0C0EF998 to read the stock AUTO STANDBY mode (0 = OFF, 1 = ON).
+When ON and the idle counter (0x0C1E10AE s, 0x0C1E10B0 ms) reaches the limit
+chosen in UTILITY (STANDBY TIME: 20/40/60/120 MIN, persisted in PIONEER/MODSET.DAT),
+auto_standby_get_mode sets 0x0C1E10AE to 0x383F so the stock comparison against
+table[1] (0x3840 = 4 hours at 0x0C18CCDE) triggers standby on that tick.
 """
-import os
+from sigpatch import Anchor, Mod, PoolRedirect
 
-from sigpatch import DataPatch, Edit, Mod
+PAYLOAD_COMMON = ('c850_ui',)
 
-STOCK_LIMIT = bytes.fromhex('3840')   # 14400 s = 4 hours, big-endian u16
-DEFAULT_MINUTES = 20
-MAX_MINUTES = 0xFFFF // 60            # 1092
-
-# Table at 0x0C18CCDC: u16 BE limits per UTILITY index 0..7. The 6-byte anchor
-# is unique in MAIN (file offset 0x18CCDC); the limit is at +2.
-STANDBY_TABLE = bytes.fromhex('000038400901')
-
-
-def standby_limit(env):
-    raw = env.get('CDJ850_STANDBY_MINUTES', str(DEFAULT_MINUTES)).strip()
-    try:
-        minutes = int(raw, 10)
-    except ValueError:
-        raise SystemExit('auto_standby: CDJ850_STANDBY_MINUTES must be an integer, got %r' % raw)
-    if not 1 <= minutes <= MAX_MINUTES:
-        raise SystemExit('auto_standby: CDJ850_STANDBY_MINUTES must be 1..%d (u16 seconds), got %d'
-                         % (MAX_MINUTES, minutes))
-    return (minutes * 60).to_bytes(2, 'big')
-
-
-def _edits(env):
-    return (Edit(STOCK_LIMIT, standby_limit(env)),)
-
+# Tail of display_stage_bpm, as in mods/bpm999/cdj850/patch.py.
+BPM_SITE = dict(
+    sig=[0xD62E, 0x6260, 0x2228, 0x8902, 0xD62A, 0x6061, 0x8154],
+    start=0,
+    end=7,
+)
 
 MODS = {
-    'autostandby': DataPatch(
-        what='AUTO STANDBY timeout: CDJ850_STANDBY_MINUTES (default 20) instead of 4 hours',
+    'autostandby': PoolRedirect(
+        what='AUTO STANDBY timeout: 20/40/60/120 MIN selectable in UTILITY (saved to USB)',
         target='main',
         fw_versions=('1.13',),
-        table=STANDBY_TABLE,
-        before=0,
-        reach=6,
-        edits=_edits,
-        kind='data',
+        anchor=Anchor(sig=[0x4EF0, 0xD254, 0x424B, 0xD554, 0x6E0C, 0x6050, 0x2008, 0x891F],
+                      index=1, literal=True),
+        old=0x0C08F186,
+        routine='payload:auto_standby_get_mode',
+    ),
+    'autostandby_usb_settings': PoolRedirect(
+        what='AUTO STANDBY: read the mod settings file on the stick at mount (shared c850_ui)',
+        target='main',
+        fw_versions=('1.13',),
+        anchor=Anchor(sig=[0x1D01, 0xD575, 0xD775, 0x470B, 0x64D3, 0x2008, 0x8903],
+                      index=2, literal=True),
+        old=0x0C0C45B4,
+        routine='payload:c850_ui_usb_mount',
+    ),
+    'autostandby_utility_scroll': PoolRedirect(
+        what='AUTO STANDBY: UTILITY list continues after VERSION No. (shared c850_ui items)',
+        target='main',
+        fw_versions=('1.13',),
+        anchor=Anchor(sig=[0x35F1, 0x4020, 0xD26D, 0x424B, 0xD56D, 0xB6CC, 0x6450],
+                      index=2, literal=True),
+        old=0x0C0E4DF6,
+        routine='payload:c850_ui_utility_scroll',
+    ),
+    'autostandby_utility_select': PoolRedirect(
+        what='AUTO STANDBY: cycle STANDBY TIME in UTILITY (shared c850_ui items)',
+        target='main',
+        fw_versions=('1.13',),
+        anchor=Anchor(sig=[0x3551, 0x8000, 0xD22A, 0x420B, 0xE403, 0xA1CF, 0x0009],
+                      index=2, literal=True),
+        old=0x0C0E4C14,
+        routine='payload:c850_ui_utility_select',
+    ),
+    'autostandby_flash': Mod(
+        what='AUTO STANDBY: draw STANDBY TIME item in UTILITY',
+        target='main',
+        fw_versions=('1.13',),
+        args=[],
+        literal=False,
+        hook=True,
+        after=('bpm_decimals', 'phase_meter'),
+        routine='payload:c850_ui_flash_hook',
+        **BPM_SITE,
     ),
 }

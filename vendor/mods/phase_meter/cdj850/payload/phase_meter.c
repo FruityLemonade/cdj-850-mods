@@ -13,6 +13,7 @@
  * & vfd_render.h. Also snaps INFO cursor across 3..4 for 1-click Page 2 nav.
  */
 #include "c850.h"
+#include "c850_ui.h"
 
 #define PM_MAX_ITEMS    18
 #define PM_REC_COUNT(r) C850_U8((r) + 0x851u)
@@ -88,6 +89,38 @@ static void pm_update_records(void)
             if (PM_REC_TRACK(rec) == C850_INFO_TRACK)
                 C850_INFO_COUNT = (u8)new_n;
             phase_meter_records++;
+        }
+    }
+}
+
+static void pm_strip_records(void)
+{
+    u32 rec = C850_DB_RECORDS;
+    int i;
+
+    for (i = 0; i < 3; i++, rec += C850_DB_RECORD_SIZE) {
+        u8 tmp[PM_MAX_ITEMS];
+        int n, k, m = 0;
+
+        if (C850_U32(rec) != PM_REC_VALID)
+            continue;
+        n = (int)PM_REC_COUNT(rec);
+        if (n <= 0 || n > PM_MAX_ITEMS)
+            continue;
+        for (k = 0; k < n; k++) {
+            u8 c = PM_REC_ITEM(rec, k);
+            if (!pm_is_code(c))
+                tmp[m++] = c;
+        }
+        if (m == n)
+            continue;
+        for (k = 0; k < m; k++)
+            PM_REC_ITEM(rec, k) = tmp[k];
+        PM_REC_COUNT(rec) = (u8)m;
+        if (PM_REC_TRACK(rec) == C850_INFO_TRACK) {
+            C850_INFO_COUNT = (u8)m;
+            if (C850_INFO_CURSOR >= (u8)m && m > 0)
+                C850_INFO_CURSOR = (u8)(m - 1);
         }
     }
 }
@@ -338,6 +371,24 @@ static __attribute__((noinline)) void pm_write_row(int r, const char *text, u8 l
     phase_meter_updates++;
 }
 
+static const char *pm_utility_value(void)
+{
+    if (!phase_meter_on)
+        return 0;
+    return c850_ui_flag(C850_UI_FLAG_PHASE_METER_OFF) ? "OFF" : "ON";
+}
+
+static void pm_utility_select(void)
+{
+    c850_ui_set_flag(C850_UI_FLAG_PHASE_METER_OFF,
+                     !c850_ui_flag(C850_UI_FLAG_PHASE_METER_OFF));
+}
+
+static const c850_ui_utility_item pm_utility_item = {
+    50u, "PHASE METER", pm_utility_value, pm_utility_select,
+};
+C850_UI_UTILITY_ITEM(pm_utility_item);
+
 void phase_meter_hook(u32 *regs, u32 *sp)
 {
     pm_state_t st;
@@ -351,6 +402,12 @@ void phase_meter_hook(u32 *regs, u32 *sp)
     (void)sp;
     if (!phase_meter_on)
         return;
+    if (c850_ui_flag(C850_UI_FLAG_PHASE_METER_OFF)) {
+        if (C850_IS_USB_MODE == 1)
+            pm_strip_records();
+        pm_last_cursor = C850_INFO_CURSOR;
+        return;
+    }
 
     if (C850_IS_USB_MODE == 1)
         pm_update_records();

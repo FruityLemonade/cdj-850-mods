@@ -152,6 +152,8 @@ static int lr_looping(void)
 /* Shared key filter (c850_ui_keys, pool 0x0C0ED038), playertask, on key changes. */
 static void loop_roll_key_filter(const u16 *k, const u16 *p, u16 *own)
 {
+    if (c850_ui_flag(C850_UI_FLAG_LOOP_ROLL_OFF))
+        return;
     if (c850_ui_shift(k, p, own, C850_K0_LOOP_OUT)) {
         lr_mode = !lr_mode;
         loop_roll_toggles++;
@@ -159,7 +161,8 @@ static void loop_roll_key_filter(const u16 *k, const u16 *p, u16 *own)
         return;
     }
     if (lr_phase == LR_IDLE) {
-        if (lr_mode && (p[1] & LR_BEATS) && !c850_ui_flag(C850_UI_FLAG_HOT_CUES) &&
+        int hc_active = !c850_ui_flag(C850_UI_FLAG_HOT_CUES_OFF) && c850_ui_flag(C850_UI_FLAG_HOT_CUES);
+        if (lr_mode && (p[1] & LR_BEATS) && !hc_active &&
             C850_IS_USB_MODE == 1 && C850_PLAYER_STATE == C850_STATE_PLAYING) {
             lr_counting = 0;
             lr_phase = LR_ROLL;      /* the stock handler makes the loop from this press */
@@ -178,6 +181,11 @@ C850_UI_KEY_FILTER(loop_roll_key_filter);
  * before the key handlers. */
 static void loop_roll_tick(void)
 {
+    if (c850_ui_flag(C850_UI_FLAG_LOOP_ROLL_OFF)) {
+        lr_mode = 0;
+        if (lr_phase == LR_IDLE)
+            return;
+    }
     switch (lr_phase) {
     case LR_ROLL:
         if (lr_counting && !lr_looping()) {
@@ -216,3 +224,22 @@ static void loop_roll_tick(void)
     }
 }
 C850_UI_TICK_HOOK(loop_roll_tick);
+
+static const char *lr_utility_value(void)
+{
+    return c850_ui_flag(C850_UI_FLAG_LOOP_ROLL_OFF) ? "OFF" : "ON";
+}
+
+static void lr_utility_select(void)
+{
+    int off = !c850_ui_flag(C850_UI_FLAG_LOOP_ROLL_OFF);
+
+    if (off)
+        lr_mode = 0;
+    c850_ui_set_flag(C850_UI_FLAG_LOOP_ROLL_OFF, off);
+}
+
+static const c850_ui_utility_item lr_utility_item = {
+    100u, "LOOP ROLL", lr_utility_value, lr_utility_select,
+};
+C850_UI_UTILITY_ITEM(lr_utility_item);

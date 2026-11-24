@@ -564,12 +564,29 @@ static int ql_drift(void)
     return !c850_ui_flag(C850_UI_FLAG_DRIFT_OFF);
 }
 
-/* UTILITY: QUANTIZE DRIFT ON/OFF after VERSION No. (and after WAVE PLAYHEAD
- * when waveform is built in); c850_ui.c owns the list. Saved in the mod flags
+static const char *ql_q_utility_value(void)
+{
+    if (!quant_loops_on)
+        return 0;
+    return c850_ui_quantize() ? "ON" : "OFF";
+}
+
+static void ql_q_utility_select(void)
+{
+    c850_ui_set_flag(C850_UI_FLAG_QUANT_OFF, c850_ui_quantize());
+}
+
+static const c850_ui_utility_item ql_q_utility_item = {
+    15u, "QUANTIZE", ql_q_utility_value, ql_q_utility_select,
+};
+C850_UI_UTILITY_ITEM(ql_q_utility_item);
+
+/* UTILITY: QUANTIZE DRIFT ON/OFF after VERSION No. (and after QUANTIZE /
+ * STANDBY TIME); c850_ui.c owns the list. Saved in the mod flags
  * (settings +0x21 bit 1); a fresh deck has drift correction on. */
 static const char *ql_utility_value(void)
 {
-    if (!quant_loops_on)
+    if (!quant_loops_on || !c850_ui_quantize())
         return 0;
     return ql_drift() ? "ON" : "OFF";
 }

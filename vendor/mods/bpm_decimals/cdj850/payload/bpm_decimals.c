@@ -30,6 +30,7 @@
  * 10000 + pitch <= 20000 (WIDE +100 %), 65535 * 20000 + 5000 < 2^32.
  */
 #include "c850.h"
+#include "c850_ui.h"
 
 /* Pitch in 1/100 % (s16), written by FUN_0C0D9B44 (pool 0x0C0D9E9C = 0x0CE6CA50; the
  * byte 0x0CE6CA4C, pool 0x0C0D9E98, is its WIDE flag); clamped there to
@@ -230,10 +231,28 @@ void bpm_decimals_rows(void)
     }
 }
 
+static const char *bpmd_utility_value(void)
+{
+    return c850_ui_flag(C850_UI_FLAG_BPM_DECIMALS_OFF) ? "OFF" : "ON";
+}
+
+static void bpmd_utility_select(void)
+{
+    c850_ui_set_flag(C850_UI_FLAG_BPM_DECIMALS_OFF,
+                     !c850_ui_flag(C850_UI_FLAG_BPM_DECIMALS_OFF));
+}
+
+static const c850_ui_utility_item bpmd_utility_item = {
+    30u, "BPM DECIMALS", bpmd_utility_value, bpmd_utility_select,
+};
+C850_UI_UTILITY_ITEM(bpmd_utility_item);
+
 /* Hook routine on display_stage_bpm's tail (contract: regs = saved r0..r7). */
 void bpm_decimals_hook(u32 *regs, u32 *sp)
 {
     (void)regs;
     (void)sp;
+    if (c850_ui_flag(C850_UI_FLAG_BPM_DECIMALS_OFF))
+        return;
     bpm_decimals_rows();
 }

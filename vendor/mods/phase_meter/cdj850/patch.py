@@ -8,6 +8,8 @@ enabled, disabled, or not built. Code is C in payload/phase_meter.c.
 """
 from sigpatch import Mod
 
+PAYLOAD_COMMON = ('c850_ui',)
+
 # Tail of display_stage_bpm, as in mods/bpm999/cdj850/patch.py.
 BPM_SITE = dict(
     sig=[0xD62E, 0x6260, 0x2228, 0x8902, 0xD62A, 0x6061, 0x8154],

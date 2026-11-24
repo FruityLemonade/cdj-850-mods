@@ -163,13 +163,14 @@ static const u16 ui_usb_path[] = {
 static u16 ui_usb_drive;             /* drive letter of the mounted stick; 0 = none seen */
 static u8 ui_usb_have;               /* 1: the flags below are the stick's */
 static u32 ui_usb_flags;
+static u32 ui_ram_flags;             /* RAM backing for bits 6..15 when no stick is mounted */
 
 volatile u32 c850_ui_usb_loads;      /* evidence: files read at mount */
 volatile u32 c850_ui_usb_saves;      /* files written */
 volatile u32 c850_ui_usb_errors;     /* opens or writes that failed, bad files */
 
 static const char ui_usb_magic[8] = C850_UI_USB_MAGIC;
-#define UI_FLAGS_ALL        (C850_UI_FLAGS_MASK | (C850_UI_FLAGS2_MASK << 4))
+#define UI_FLAGS_ALL        (C850_UI_FLAGS_MASK | (C850_UI_FLAGS2_MASK << 4) | 0xFFC0u)
 
 static void ui_usb_load(void)
 {
@@ -193,6 +194,7 @@ static void ui_usb_load(void)
             return;
         }
     ui_usb_flags = ((u32)buf[12] << 24 | (u32)buf[13] << 16 | (u32)buf[14] << 8 | buf[15]) & UI_FLAGS_ALL;
+    ui_ram_flags = ui_usb_flags;
     ui_usb_have = 1;
     c850_ui_usb_loads++;
 }
@@ -248,11 +250,15 @@ static u32 ui_flags(void)
 {
     if (ui_usb_have)
         return ui_usb_flags;
-    return ui_flags1() | (ui_flags2() << 4);
+    return (ui_ram_flags & ~0x3Fu) | ui_flags1() | (ui_flags2() << 4);
 }
 
 int c850_ui_flag(u32 flag)
 {
+    if (ui_usb_have)
+        return (ui_usb_flags & flag) != 0;
+    if ((flag & ~0x3Fu) == flag)
+        return (ui_ram_flags & flag) != 0;
     return (ui_flags() & flag) != 0;
 }
 
@@ -260,16 +266,28 @@ int c850_ui_set_flags(u32 mask, u32 value)
 {
     u32 m1 = mask & C850_UI_FLAGS_MASK;
     u32 m2 = (mask >> 4) & C850_UI_FLAGS2_MASK;
-    u32 all = (ui_flags() & ~mask) | (value & mask & UI_FLAGS_ALL);
+    u32 all;
     u32 v1, v2;
     int saved = 0;
 
+    if (!m1 && !m2 && ui_usb_drive == 0) {
+        ui_ram_flags = (ui_ram_flags & ~mask) | (value & mask & ~0x3Fu);
+        if (ui_usb_have)
+            ui_usb_flags = (ui_usb_flags & ~(mask & ~0x3Fu)) | (value & mask & ~0x3Fu);
+        return 0;
+    }
+    all = (ui_flags() & ~mask) | (value & mask & UI_FLAGS_ALL);
+    ui_ram_flags = all;
     /* the stick first: it has room whatever the HISTORY name */
     if (ui_usb_save(all)) {
         ui_usb_flags = all;
         ui_usb_have = 1;
         saved = 1;
+    } else if (ui_usb_have) {
+        ui_usb_flags = (ui_usb_flags & ~(mask & ~0x3Fu)) | (all & mask & ~0x3Fu);
     }
+    if (!m1 && !m2)
+        return saved;
     if ((m2 && !ui_name_short(0x1E)) || (m1 && !ui_name_short(0x1F)))
         return saved;
     if (m1) {
@@ -294,6 +312,12 @@ int c850_ui_quantize(void)
     return !c850_ui_flag(C850_UI_FLAG_QUANT_OFF);
 }
 
+u32 c850_ui_standby_index(void)
+{
+    u32 f = ui_usb_have ? ui_usb_flags : ui_ram_flags;
+    return (f & C850_UI_FLAG_STANDBY_MASK) >> C850_UI_FLAG_STANDBY_SHIFT;
+}
+
 /* ---- UTILITY items ---- */
 
 #define UI_UTIL_MODE        12u
@@ -303,7 +327,7 @@ int c850_ui_quantize(void)
 #define UI_UTIL_SCROLL      C850_FN(0x0C0E4DF6, void, (s8, u8))   /* utility_scroll_item */
 #define UI_UTIL_SET_LEVEL   C850_FN(0x0C0E4C14, void, (u32, int)) /* utility_set_menu_level */
 #define UI_UTIL_REDRAW      C850_FN(0x0C06F71C, void, (int))
-#define UI_UTIL_MAX         8u
+#define UI_UTIL_MAX         24u
 
 const c850_ui_utility_item *const c850_ui_items_start[1]
     __attribute__((used, section(".c850_ui_items.a"))) = {0};
@@ -312,42 +336,54 @@ const c850_ui_utility_item *const c850_ui_items_end[1]
 
 volatile u32 c850_ui_utility_selects;  /* evidence: presses on a mod item */
 
-/* The visible items in ascending order; returns how many. */
-static u32 ui_util_items(const c850_ui_utility_item **out)
+/* How many mod items are currently visible (up to UI_UTIL_MAX). */
+static u32 ui_util_count(void)
 {
-    u32 f, end = (u32)c850_ui_items_end, n = 0, i;
-    const c850_ui_utility_item *it;
+    u32 f, end = (u32)c850_ui_items_end, n = 0;
 
     for (f = (u32)(c850_ui_items_start + 1); f < end && n < UI_UTIL_MAX; f += 4) {
-        it = *(const c850_ui_utility_item *const *)f;
-        if (it->value() == 0)
-            continue;
-        for (i = n; i > 0 && out[i - 1]->order > it->order; i--)
-            out[i] = out[i - 1];
-        out[i] = it;
-        n++;
+        const c850_ui_utility_item *it = *(const c850_ui_utility_item *const *)f;
+        if (it->value() != 0)
+            n++;
     }
     return n;
 }
 
 static const c850_ui_utility_item *ui_util_item(u32 cursor)
 {
-    const c850_ui_utility_item *items[UI_UTIL_MAX];
-    u32 n = ui_util_items(items);
+    u32 f, g, end = (u32)c850_ui_items_end, target;
 
-    if (cursor < C850_UI_UTILITY_FIRST || cursor - C850_UI_UTILITY_FIRST >= n)
+    if (cursor < C850_UI_UTILITY_FIRST)
         return 0;
-    return items[cursor - C850_UI_UTILITY_FIRST];
+    target = cursor - C850_UI_UTILITY_FIRST;
+    if (target >= UI_UTIL_MAX)
+        return 0;
+    for (f = (u32)(c850_ui_items_start + 1); f < end; f += 4) {
+        const c850_ui_utility_item *it = *(const c850_ui_utility_item *const *)f;
+        u32 rank = 0;
+
+        if (it->value() == 0)
+            continue;
+        for (g = (u32)(c850_ui_items_start + 1); g < end; g += 4) {
+            const c850_ui_utility_item *other = *(const c850_ui_utility_item *const *)g;
+            if (other->value() == 0)
+                continue;
+            if (other->order < it->order || (other->order == it->order && g < f))
+                rank++;
+        }
+        if (rank == target)
+            return it;
+    }
+    return 0;
 }
 
 /* Pool 0x0C0E797C (read at 0x0C0E77C4): rotary in UTILITY level 2, 0 = CCW,
  * 1 = CW. Stock clamps at item 6; the mod items continue the list. */
 void c850_ui_utility_scroll(s8 direction, u8 steps)
 {
-    const c850_ui_utility_item *items[UI_UTIL_MAX];
     s32 item = (s32)UI_UTIL_CURSOR;
     s32 next = item + (direction == 1 ? (s32)steps : -(s32)steps);
-    s32 last = (s32)C850_UI_UTILITY_FIRST - 1 + (s32)ui_util_items(items);
+    s32 last = (s32)C850_UI_UTILITY_FIRST - 1 + (s32)ui_util_count();
 
     if (item < (s32)C850_UI_UTILITY_FIRST && next < (s32)C850_UI_UTILITY_FIRST) {
         UI_UTIL_SCROLL(direction, steps);

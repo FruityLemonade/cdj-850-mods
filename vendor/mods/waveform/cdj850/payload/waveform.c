@@ -123,11 +123,32 @@ static u32 wf_effective_loop_out(u32 in)
     return C850_LOOP_OUT_FRAME;
 }
 
-/* UTILITY: WAVE PLAYHEAD, the first mod item after VERSION No. (c850_ui.c
- * owns the list; the encoder press cycles Left 1/3 -> Center -> Left). */
+static const char *wf_mod_utility_value(void)
+{
+    if (!waveform_on)
+        return 0;
+    return c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF) ? "OFF" : "ON";
+}
+
+static void wf_mod_utility_select(void)
+{
+    c850_ui_set_flag(C850_UI_FLAG_WAVEFORM_OFF,
+                     !c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF));
+    wf_force_redraw = 1;
+}
+
+static const c850_ui_utility_item wf_mod_utility_item = {
+    90u, "WAVEFORM", wf_mod_utility_value, wf_mod_utility_select,
+};
+C850_UI_UTILITY_ITEM(wf_mod_utility_item);
+
+/* UTILITY: WAVE PLAYHEAD, visible while WAVEFORM is ON (c850_ui.c owns
+ * the list; the encoder press cycles Left 1/3 -> Center -> Left). */
 static const char *wf_utility_value(void)
 {
-    return waveform_on ? wf_playhead_label(wf_playhead_pos()) : 0;
+    if (!waveform_on || c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF))
+        return 0;
+    return wf_playhead_label(wf_playhead_pos());
 }
 
 static void wf_utility_select(void)
@@ -145,7 +166,7 @@ static void wf_utility_select(void)
 }
 
 static const c850_ui_utility_item wf_utility_item = {
-    10u, "WAVE PLAYHEAD", wf_utility_value, wf_utility_select,
+    95u, "WAVE PLAYHEAD", wf_utility_value, wf_utility_select,
 };
 C850_UI_UTILITY_ITEM(wf_utility_item);
 
@@ -169,7 +190,8 @@ int waveform_center_marker(void)
     u32 last = WF_TX_LAST;
     u32 zoom = waveform_zoom;
 
-    if (waveform_on && wf_was_zoomed && zoom < WF_ZOOM_OVERVIEW &&
+    if (waveform_on && !c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF) &&
+        wf_was_zoomed && zoom < WF_ZOOM_OVERVIEW &&
         C850_DISPLAY_MODE == WF_MODE_TITLE &&
         last > before && last < 0x2Fu) {
         volatile u8 *frame = (volatile u8 *)(WF_TX_FRAMES + last * 16u);
@@ -441,11 +463,15 @@ void waveform_hook(u32 *regs, u32 *sp)
     (void)regs;
     (void)sp;
 
-    if (!waveform_on) {
+    if (!waveform_on || c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF)) {
         if (wf_was_zoomed) {
             wf_restore_overview();
             wf_was_zoomed = 0;
         }
+        waveform_zoom = WF_ZOOM_CLOSE;
+        wf_was_mode10 = 0;
+        if (C850_DISPLAY_MODE != WF_MODE_TITLE)
+            c850_ui_utility_draw();
         return;
     }
 
@@ -534,7 +560,7 @@ void waveform_rotary_hook(u32 *regs, u32 *sp)
 
     (void)regs;
 
-    if (!waveform_on)
+    if (!waveform_on || c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF))
         return;
 
     st = C850_PLAYER_STATE;

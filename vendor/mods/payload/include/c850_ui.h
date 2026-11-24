@@ -89,10 +89,24 @@ typedef void c850_ui_tick_fn(void);
 #define C850_UI_FLAG_DRIFT_OFF   0x20            /* stored in +0x21 bit 1: loop drift correction off (default on) */
 #define C850_UI_FLAGS2_MASK      0x03
 
+/* Additional flags persisted in PIONEER/MODSET.DAT (and RAM when no stick is mounted).
+ * Default 0 = mod enabled; bits 14..15 store the Auto Standby timeout index (0..3). */
+#define C850_UI_FLAG_BPM_DECIMALS_OFF 0x0040u
+#define C850_UI_FLAG_BPM_LOCK_OFF     0x0080u
+#define C850_UI_FLAG_PHASE_METER_OFF  0x0100u
+#define C850_UI_FLAG_INFO_ORDER_OFF   0x0200u
+#define C850_UI_FLAG_BROWSE_OFF       0x0400u
+#define C850_UI_FLAG_HOT_CUES_OFF     0x0800u
+#define C850_UI_FLAG_WAVEFORM_OFF     0x1000u
+#define C850_UI_FLAG_LOOP_ROLL_OFF    0x2000u
+#define C850_UI_FLAG_STANDBY_SHIFT    14u
+#define C850_UI_FLAG_STANDBY_MASK     0xC000u    /* 0 = 20m, 1 = 40m, 2 = 60m, 3 = 120m */
+
 int c850_ui_flag(u32 flag);                     /* 1 = set */
-int c850_ui_set_flag(u32 flag, int on);         /* 1 = changed and saved, 0 = no room (long name) */
+int c850_ui_set_flag(u32 flag, int on);         /* 1 = changed and saved, 0 = no room / no stick */
 int c850_ui_set_flags(u32 mask, u32 value);     /* atomic multi-flag update + single save */
 int c850_ui_quantize(void);                     /* 1 = grid snapping on */
+u32 c850_ui_standby_index(void);                /* 0..3 for 20/40/60/120 min */
 
 /* ---- settings file on the USB stick (pool 0x0C0C11E8) ---- */
 #define C850_UI_USB_MAGIC        "C850MODS"
