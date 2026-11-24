@@ -284,7 +284,10 @@ int c850_ui_set_flags(u32 mask, u32 value)
         ui_usb_have = 1;
         saved = 1;
     } else if (ui_usb_have) {
-        ui_usb_flags = (ui_usb_flags & ~(mask & ~0x3Fu)) | (all & mask & ~0x3Fu);
+        /* The stick refused the write, but c850_ui_flag still reads the
+         * stick's copy: keep every bit of the change there (not only bits
+         * 6+), or quantize, drift and the playhead stay at the file's value. */
+        ui_usb_flags = all;
     }
     if (!m1 && !m2)
         return saved;
