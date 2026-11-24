@@ -23,7 +23,8 @@ OPTIONS = {
     "bpm_lock": ("BPM lock", "Lock tracks to a Master BPM across ±100% range (auto-switches to WIDE beyond ±16%). Hold BEAT SELECT + MASTER TEMPO for 1 s to set Master BPM with the rotary selector; short-press to toggle lock on/off."),
     "phase_meter": ("Phase meter", "Show a 4-beat bar counter and sub-beat phase indicator on INFO Page 2 (shifting stock INFO pages down by one page). Works with BPM lock on or off."),
     "info_order": ("INFO screen order", "Show playing BPM, Camelot key and rekordbox rating beneath the USB track title (e.g. 128.23 12A *****). Turn the jog in INFO to see Artist, Rating and Key, then Album and Comment."),
-    "waveform": ("Zoomed scrolling waveform", "Stream a live zoomed scrolling half-waveform in the 100×5 INFO Page 1 strip while keeping rows 1–2 intact (compatible with INFO screen order). Turn the rotary counterclockwise on INFO Page 1 to zoom out (close → medium → whole-track overview) and clockwise to zoom back in."),
+    "waveform": ("Zoomed scrolling waveform", "Stream a live 50 Hz zoomed scrolling half-waveform in the 100×5 INFO Page 1 strip while keeping rows 1–2 intact (compatible with INFO screen order). Turn the rotary counterclockwise on INFO Page 1 to zoom out (close → medium → whole-track overview) and clockwise to zoom back in. Hold MENU/UTILITY to toggle WAVE PLAYHEAD between CENTER and LEFT."),
+    "browse": ("Browse history & sort", "Mark played rekordbox USB tracks with * after 20 s of playback (up to 1,024 per mount), and tap MENU in BROWSE to cycle TRACK sort order (BPM, Key, Default)."),
     "auto_standby": ("20-minute auto standby", "Shorten the idle timeout to 20 minutes when AUTO STANDBY is enabled."),
 }
 
