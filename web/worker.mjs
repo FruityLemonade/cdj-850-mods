@@ -2,7 +2,7 @@ import { packTree } from "./lzss.mjs";
 
 const runtimeUrl = "https://cdn.jsdelivr.net/pyodide/v0.29.3/full/";
 
-self.addEventListener("message", async ({ data: { input, mods, version } }) => {
+self.addEventListener("message", async ({ data: { input, build, version } }) => {
   const progress = (message) => self.postMessage({ type: "progress", message });
   try {
     progress("Loading the patching engine…");
@@ -25,7 +25,7 @@ from patcher import patch_update, prebuilt_payload
 
 payloadbuild.build = prebuilt_payload
 
-def patch_file(selected, version, progress, encode):
+def patch_file(build_id, version, progress, encode):
     def pack(data):
         Path("/main.bin").write_bytes(data)
         encode()
@@ -33,8 +33,7 @@ def patch_file(selected, version, progress, encode):
 
     c850_repack.pack_tree = pack
     source = Path("/input.upd").read_bytes()
-    mods = selected.split(",") if selected else []
-    Path("/output.upd").write_bytes(patch_update(source, mods, version, progress))
+    Path("/output.upd").write_bytes(patch_update(source, build_id, version, progress))
 
 patch_file
 `);
@@ -43,7 +42,7 @@ patch_file
         const image = python.FS.readFile("/main.bin");
         python.FS.writeFile("/packed.bin", packTree(image));
       };
-      patch(mods.join(","), version, progress, encode);
+      patch(build, version, progress, encode);
     } finally {
       patch.destroy();
     }

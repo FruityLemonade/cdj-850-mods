@@ -12,24 +12,89 @@ import validate
 from patch_update import conf_rows
 
 MODEL = "cdj850"
-OPTIONS = {
-    "tempo_wide": ("USB WIDE tempo", "Enable ±100% tempo on USB. TEMPO cycles ±6% → ±10% → ±16% → WIDE, as on a CD."),
-    "flac": ("USB FLAC playback", "Play stereo FLAC files from USB at 16 or 24 bits and 44.1 or 48 kHz."),
-    "hot_cues": ("Hot cues", "Use BEAT 1, 2 and 4 for hot cues A–C, read from and saved to rekordbox. Hold BEAT 8 and press one to delete it. Toggle with BEAT SELECT + RELOOP. Unfinished: a jump takes a few seconds."),
-    "quant_loops": ("Quantized loops", "Snap loops (and new hot cues) to the nearest beat of the rekordbox grid. Toggle with BEAT SELECT + LOOP IN."),
-    "loop_resize": ("Loop resize", "While a loop plays, use CUE/LOOP CALL to halve or double its length."),
-    "bpm999": ("BPM up to 999", "Raise the tempo ceiling for rekordbox grids and the panel display."),
-    "bpm_decimals": ("BPM decimals", "Show the actual BPM to two decimal places in place of the rekordbox BPM in the INFO view, on grid tracks."),
-    "bpm_lock": ("BPM lock", "Lock tracks to a Master BPM across ±100% range (auto-switches to WIDE beyond ±16%). Hold BEAT SELECT + MASTER TEMPO for 1 s to set Master BPM with the rotary selector; short-press to toggle lock on/off."),
-    "phase_meter": ("Phase meter", "Show a 4-beat bar counter and sub-beat phase indicator on INFO Page 2 (shifting stock INFO pages down by one page). Works with BPM lock on or off."),
-    "info_order": ("INFO screen order", "Show playing BPM, Camelot key and rekordbox rating beneath the USB track title (e.g. 128.23 12A *****). Turn the jog in INFO to see Artist, Rating and Key, then Album and Comment."),
-    "waveform": ("Zoomed scrolling waveform", "Stream a live 50 Hz zoomed scrolling half-waveform in the 100×5 INFO Page 1 strip while keeping rows 1–2 intact (compatible with INFO screen order). Turn the rotary counterclockwise on INFO Page 1 to zoom out (close → medium → whole-track overview) and clockwise to zoom back in. Hold MENU/UTILITY to cycle WAVE PLAYHEAD between LEFT 1/3 (default), CENTER, and LEFT. Active loops are marked on the red cue strip while zoomed in."),
-    "browse": ("Browse history & sort", "Mark played rekordbox USB tracks with * after 20 s of playback (up to 1,024 per mount), and tap MENU in BROWSE to cycle TRACK sort order (BPM, Key, Default)."),
-    "auto_standby": ("20-minute auto standby", "Shorten the idle timeout to 20 minutes when AUTO STANDBY is enabled."),
+
+ALWAYS_ON = (
+    "version_display",
+    "bpm999",
+    "flac",
+    "tempo_wide",
+    "loop_resize",
+    "auto_standby",
+)
+TESTED_TOGGLEABLE = (
+    "quant_loops",
+    "bpm_decimals",
+    "bpm_lock",
+    "phase_meter",
+    "info_order",
+    "browse",
+)
+DEV_TOGGLEABLE = (
+    "hot_cues",
+    "waveform",
+    "loop_roll",
+)
+
+ALWAYS_ON_LABELS = [
+    "Version display (custom + base 1.13 in UTILITY)",
+    "BPM up to 999",
+    "USB FLAC playback (16/24-bit, 44.1/48 kHz)",
+    "USB WIDE tempo (±100%)",
+    "Loop resize (CUE/LOOP CALL </>)",
+    "Auto standby (20 / 40 / 60 / 120 min in UTILITY)",
+]
+TESTED_TOGGLE_LABELS = [
+    "Quantized loops & drift fix",
+    "BPM decimals in INFO view",
+    "BPM lock (±100%)",
+    "Phase meter (INFO Page 2)",
+    "INFO screen order",
+    "Browse played markers & BPM/key sort",
+]
+DEV_TOGGLE_LABELS = [
+    "Hot cues (BEAT 1/2/4)",
+    "Zoomed scrolling waveform",
+    "Loop roll",
+]
+
+BUILDS = {
+    "stable": {
+        "title": "Standard build",
+        "badge": "Tested",
+        "description": (
+            "All emulator-tested modifications. Optional features can be enabled or "
+            "disabled in the UTILITY menu and saved to PIONEER/MODSET.DAT on your USB stick."
+        ),
+        "alwaysOn": ALWAYS_ON_LABELS,
+        "toggleable": TESTED_TOGGLE_LABELS,
+        "mods": ALWAYS_ON + TESTED_TOGGLEABLE,
+    },
+    "experimental": {
+        "title": "Experimental build",
+        "badge": "In development",
+        "description": (
+            "Everything in Standard plus in-development features (Hot cues, "
+            "Zoomed scrolling waveform, Loop roll). Toggle features in UTILITY (saved to USB)."
+        ),
+        "alwaysOn": ALWAYS_ON_LABELS,
+        "toggleable": TESTED_TOGGLE_LABELS + DEV_TOGGLE_LABELS,
+        "mods": ALWAYS_ON + TESTED_TOGGLEABLE + DEV_TOGGLEABLE,
+    },
+    "stock": {
+        "title": "Restore stock",
+        "badge": "Original",
+        "description": (
+            "Repack the unmodified Pioneer v1.13 firmware with a new version number "
+            "to roll back over a modded build."
+        ),
+        "alwaysOn": [],
+        "toggleable": [],
+        "mods": (),
+    },
 }
 
 rows = conf_rows()
-MODS = {name: rows[name] for name in OPTIONS}
+MODS = {name: rows[name] for name in ALWAYS_ON + TESTED_TOGGLEABLE + DEV_TOGGLEABLE}
 
 
 def prebuilt_payload(folders, model):
@@ -44,12 +109,13 @@ def prebuilt_payload(folders, model):
     return payloadbuild.Payload(blob, symbols, tuple(folders), "", {})
 
 
-def patch_update(stock, selections, version, progress):
-    if any(name not in MODS for name in selections):
-        raise ValueError("Choose modifications from the available options.")
+def patch_update(stock, build_id, version, progress):
+    if build_id not in BUILDS:
+        raise ValueError("Choose a valid firmware build option.")
     if hashlib.sha256(stock).hexdigest() != modelfw.main_file(MODEL)[1]:
         raise ValueError("Choose the original CDJ-850 firmware version 1.13.")
 
+    selections = BUILDS[build_id]["mods"]
     relabelled = repack.set_version(stock, version)
     if not selections:
         progress("Verifying the stock update…")
@@ -57,16 +123,16 @@ def patch_update(stock, selections, version, progress):
             raise ValueError("The stock update did not pass validation.")
         return relabelled
 
-    progress("Applying selected modifications…")
+    progress("Applying modifications…")
     image = repack.unpack_main(stock)
     names = list(dict.fromkeys(patch for key in selections for patch in MODS[key]))
     names = patch_main.with_loader(names, MODEL)
     report, spans = {}, {}
     patched = patch_main.patch(image, names, MODEL, report, spans)
-    if any(report.get(name, (None,))[0] != "applied" for name in names):
-        raise ValueError("A selected modification could not be applied.")
+    if any(report.get(name, (None,))[0] not in ("applied", "present") for name in names):
+        raise ValueError("A modification could not be applied.")
     if patched == image:
-        raise ValueError("The selected modifications produced no changes.")
+        raise ValueError("The selected build produced no changes.")
 
     progress("Compressing the modified firmware…")
     output = repack.build_upd(stock, patched, version=version)

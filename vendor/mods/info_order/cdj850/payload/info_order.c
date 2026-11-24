@@ -43,6 +43,7 @@
  * metadata builder. The display hook only reorders the resulting fields.
  */
 #include "c850.h"
+#include "c850_ui.h"
 
 #define IO_RECORDS          0x0C9D44D4u          /* 3 DB records of loaded tracks */
 #define IO_RECORD_SIZE      0x864u
@@ -103,11 +104,17 @@ int info_order_sort(const volatile u8 *list, int n, u8 *out)
     return 1;
 }
 
+static u8 io_orig[3][IO_MAX_ITEMS];
+static u8 io_orig_n[3];
+static s16 io_orig_track[3];
+static u8 io_orig_valid[3];
+
 /* Put one record's list in order (written only when it differs). */
-static void io_order_record(u32 rec)
+static void io_order_record(int slot, u32 rec)
 {
     u8 out[IO_MAX_ITEMS];
     int i, n = IO_REC_COUNT(rec), same = 1;
+    s16 track = IO_REC_TRACK(rec);
 
     if (!info_order_sort((const volatile u8 *)(rec + 0x852), n, out))
         return;
@@ -115,9 +122,35 @@ static void io_order_record(u32 rec)
         same &= IO_REC_ITEM(rec, i) == out[i];
     if (same)
         return;
+    if (!io_orig_valid[slot] || io_orig_track[slot] != track) {
+        int m = 0;
+        for (i = 0; i < n && i < IO_MAX_ITEMS; i++) {
+            u8 c = IO_REC_ITEM(rec, i);
+            if (c != 0x13 && c != 0x14 && c != 0x15)
+                io_orig[slot][m++] = c;
+        }
+        io_orig_n[slot] = (u8)m;
+        io_orig_track[slot] = track;
+        io_orig_valid[slot] = 1;
+    }
     for (i = 0; i < n; i++)
         IO_REC_ITEM(rec, i) = out[i];
     info_order_lists++;
+}
+
+static void io_restore_record(int slot, u32 rec)
+{
+    int i, n;
+
+    if (!io_orig_valid[slot] || io_orig_track[slot] != IO_REC_TRACK(rec))
+        return;
+    n = io_orig_n[slot];
+    for (i = 0; i < n; i++)
+        IO_REC_ITEM(rec, i) = io_orig[slot][i];
+    IO_REC_COUNT(rec) = (u8)n;
+    if (IO_REC_TRACK(rec) == IO_TRACK)
+        C850_INFO_COUNT = (u8)n;
+    io_orig_valid[slot] = 0;
 }
 
 /* The 0x2002 server request builds and caches its metadata synchronously.
@@ -129,7 +162,8 @@ int info_order_track_info(u32 db, u32 request, u32 selection, u32 args)
     int (*stock)(u32, u32, u32, u32) = C850_FN(C850_DB_TRACK_INFO, int, (u32, u32, u32, u32));
     int result;
 
-    if (!info_order_on || (selection & 0xFFFFu) != C850_DB_USB_INFO || C850_DB_USB_INFO_RATING(db))
+    if (!info_order_on || c850_ui_flag(C850_UI_FLAG_INFO_ORDER_OFF) ||
+        (selection & 0xFFFFu) != C850_DB_USB_INFO || C850_DB_USB_INFO_RATING(db))
         return stock(db, request, selection, args);
 
     C850_DB_USB_INFO_RATING(db) = 1;
@@ -361,6 +395,24 @@ static void io_title_row(void)
     info_order_rows++;
 }
 
+static const char *io_utility_value(void)
+{
+    if (!info_order_on)
+        return 0;
+    return c850_ui_flag(C850_UI_FLAG_INFO_ORDER_OFF) ? "OFF" : "ON";
+}
+
+static void io_utility_select(void)
+{
+    c850_ui_set_flag(C850_UI_FLAG_INFO_ORDER_OFF,
+                     !c850_ui_flag(C850_UI_FLAG_INFO_ORDER_OFF));
+}
+
+static const c850_ui_utility_item io_utility_item = {
+    60u, "INFO ORDER", io_utility_value, io_utility_select,
+};
+C850_UI_UTILITY_ITEM(io_utility_item);
+
 void info_order_pass(void)
 {
     u32 rec = IO_RECORDS;
@@ -368,9 +420,15 @@ void info_order_pass(void)
 
     if (!info_order_on || C850_IS_USB_MODE != 1)
         return;
+    if (c850_ui_flag(C850_UI_FLAG_INFO_ORDER_OFF)) {
+        for (i = 0; i < 3; i++, rec += IO_RECORD_SIZE)
+            if (C850_U32(rec) == IO_RECORD_VALID)
+                io_restore_record(i, rec);
+        return;
+    }
     for (i = 0; i < 3; i++, rec += IO_RECORD_SIZE)
         if (C850_U32(rec) == IO_RECORD_VALID)
-            io_order_record(rec);
+            io_order_record(i, rec);
     io_title_row();
 }
 

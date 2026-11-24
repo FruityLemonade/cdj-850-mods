@@ -94,6 +94,10 @@ void browse_playback_tick(u32 *regs, u32 *sp)
     (void)regs;
     (void)sp;
     previous_tick = now;
+    if (c850_ui_flag(C850_UI_FLAG_BROWSE_OFF)) {
+        previous_id = 0;
+        return;
+    }
     if (generation != history_generation) {
         for (i = 0; i < HISTORY_SIZE; i++) {
             played[i].id = 0;
@@ -140,7 +144,8 @@ void browse_mark_title(u32 *regs, u32 *sp)
     int n;
 
     (void)sp;
-    if (!export_mounted || history_generation != mount_generation ||
+    if (c850_ui_flag(C850_UI_FLAG_BROWSE_OFF) ||
+        !export_mounted || history_generation != mount_generation ||
         C850_SOURCE_INDEX != 2 || C850_NAV_VIEW != C850_NAV_BROWSE ||
         (type != 0x04 && type != 0x5A && type != 0x5D))
         return;
@@ -174,7 +179,8 @@ static void browse_sort_menu(void)
     u32 held = C850_K2 & C850_K2_MENU;
     u32 now = C850_TICK_MS;
 
-    if (!export_mounted || C850_SOURCE_INDEX != 2 || C850_NAV_VIEW != C850_NAV_BROWSE ||
+    if (c850_ui_flag(C850_UI_FLAG_BROWSE_OFF) ||
+        !export_mounted || C850_SOURCE_INDEX != 2 || C850_NAV_VIEW != C850_NAV_BROWSE ||
         C850_BROWSE_MENU_LEVEL >= 2 || C850_UI_LOCK) {
         menu_held = 0;
         return;
@@ -206,7 +212,8 @@ int browse_track_cache(u32 cache, u32 selection, u32 request, volatile u32 *argu
 {
     request_sort = SORT_DEFAULT;
     preserve_cursor = 0;
-    if (request == 0x1004 && (selection & 0xFFFFu) == 0x0301u && export_mounted) {
+    if (!c850_ui_flag(C850_UI_FLAG_BROWSE_OFF) &&
+        request == 0x1004 && (selection & 0xFFFFu) == 0x0301u && export_mounted) {
         if ((selection >> 16 & 0xFFu) == 1)
             active_sort = selected_sort;
         request_sort = active_sort;
@@ -225,7 +232,8 @@ u32 browse_track_query(u32 flags, u32 kind, u32 filter1, u32 filter2, u32 filter
     u32 (*query)(u32, u32, u32, u32, u32, u32) =
         C850_FN(C850_DB_TRACK_QUERY, u32, (u32, u32, u32, u32, u32, u32));
 
-    if (kind != 4 || (selection & 0xFFFFu) != 0x0301u || !export_mounted)
+    if (c850_ui_flag(C850_UI_FLAG_BROWSE_OFF) ||
+        kind != 4 || (selection & 0xFFFFu) != 0x0301u || !export_mounted)
         return query(flags, kind, filter1, filter2, filter3, selection);
     query_sort = request_sort;
     cursor = query(flags | (query_sort ? 0x80u : 0), kind, filter1, filter2, filter3, selection);
@@ -245,10 +253,12 @@ int browse_sort_fields(u32 cursor, u32 count, const u32 *columns, const u8 *asce
     int (*sort)(u32, u32, const u32 *, const u8 *) =
         C850_FN(C850_DB_SORT_CURSOR, int, (u32, u32, const u32 *, const u8 *));
 
-    if (query_sort == SORT_BPM)
-        columns = bpm_columns;
-    else if (query_sort == SORT_KEY)
-        columns = key_columns;
+    if (!c850_ui_flag(C850_UI_FLAG_BROWSE_OFF)) {
+        if (query_sort == SORT_BPM)
+            columns = bpm_columns;
+        else if (query_sort == SORT_KEY)
+            columns = key_columns;
+    }
     return sort(cursor, count, columns, ascending);
 }
 
@@ -263,7 +273,7 @@ int browse_sort_results(u32 results)
     u8 primary;
     int status;
 
-    if (!preserve_cursor || !results)
+    if (c850_ui_flag(C850_UI_FLAG_BROWSE_OFF) || !preserve_cursor || !results)
         return finish(results);
     preserve_cursor = 0;
     index = (volatile u16 *)C850_DB_RESULTS_INDEX(results);
@@ -278,3 +288,24 @@ int browse_sort_results(u32 results)
     C850_DB_RESULTS_SORT(results) = primary;
     return status;
 }
+
+static const char *browse_utility_value(void)
+{
+    return c850_ui_flag(C850_UI_FLAG_BROWSE_OFF) ? "OFF" : "ON";
+}
+
+static void browse_utility_select(void)
+{
+    int off = !c850_ui_flag(C850_UI_FLAG_BROWSE_OFF);
+
+    if (off) {
+        selected_sort = SORT_DEFAULT;
+        active_sort = SORT_DEFAULT;
+    }
+    c850_ui_set_flag(C850_UI_FLAG_BROWSE_OFF, off);
+}
+
+static const c850_ui_utility_item browse_utility_item = {
+    70u, "BROWSE MODS", browse_utility_value, browse_utility_select,
+};
+C850_UI_UTILITY_ITEM(browse_utility_item);

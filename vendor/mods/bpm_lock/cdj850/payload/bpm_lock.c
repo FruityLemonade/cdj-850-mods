@@ -71,7 +71,7 @@ static void bl_fmt_master(u32 tenths)
 
 static void bpm_lock_key_filter(const u16 *k, const u16 *p, u16 *own)
 {
-    if (!bpm_lock_on)
+    if (!bpm_lock_on || c850_ui_flag(C850_UI_FLAG_BPM_LOCK_OFF))
         return;
     if (c850_ui_shift_k1(k, p, own, C850_K1_MASTER_TEMPO)) {
         bl_hold = 1;
@@ -131,6 +131,19 @@ void bpm_lock_tick(void)
     if (!bpm_lock_on) {
         bl_hold = 0;
         bl_pending_toggle = 0;
+        return;
+    }
+    if (c850_ui_flag(C850_UI_FLAG_BPM_LOCK_OFF)) {
+        bl_hold = 0;
+        bl_pending_toggle = 0;
+        if (C850_BPMLOCK_EDIT == 1)
+            c850_bpm_lock_cmd(3, 0, 0);
+        if (C850_BPMLOCK_ACTIVE == 1) {
+            c850_bpm_lock_cmd(7, 0, 0);
+            bl_restore_saved_range();
+        }
+        bl_was_locked = C850_BPMLOCK_ACTIVE;
+        bl_was_edit = C850_BPMLOCK_EDIT;
         return;
     }
 
@@ -199,6 +212,9 @@ u32 bpm_lock_notify(u32 code, s32 dur)
 {
     u32 c = code & 0xFFu;
 
+    if (!bpm_lock_on || c850_ui_flag(C850_UI_FLAG_BPM_LOCK_OFF))
+        return BL_NOTIFY_STOCK(code, dur);
+
     bpm_lock_notifies++;
     bpm_lock_last_code = c;
     switch (c) {
@@ -230,13 +246,31 @@ u32 bpm_lock_notify(u32 code, s32 dur)
     }
 }
 
+static const char *bl_utility_value(void)
+{
+    if (!bpm_lock_on)
+        return 0;
+    return c850_ui_flag(C850_UI_FLAG_BPM_LOCK_OFF) ? "OFF" : "ON";
+}
+
+static void bl_utility_select(void)
+{
+    c850_ui_set_flag(C850_UI_FLAG_BPM_LOCK_OFF,
+                     !c850_ui_flag(C850_UI_FLAG_BPM_LOCK_OFF));
+}
+
+static const c850_ui_utility_item bl_utility_item = {
+    40u, "BPM LOCK", bl_utility_value, bl_utility_select,
+};
+C850_UI_UTILITY_ITEM(bl_utility_item);
+
 /* ---- display hook (tail of display_stage_bpm) ---- */
 
 void bpm_lock_display_hook(u32 *regs, u32 *sp)
 {
     (void)regs;
     (void)sp;
-    if (!bpm_lock_on)
+    if (!bpm_lock_on || c850_ui_flag(C850_UI_FLAG_BPM_LOCK_OFF))
         return;
     if (C850_BPMLOCK_EDIT == 1 && C850_BPMLOCK_MASTER > 0u) {
         u32 bpm = (C850_BPMLOCK_MASTER + 5u) / 10u;

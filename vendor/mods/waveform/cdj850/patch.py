@@ -51,21 +51,29 @@ MODS = {
         **ROTARY_INFO_SITE,
     ),
     'waveform_utility_scroll': PoolRedirect(
-        what='Waveform: scroll to the playhead setting after VERSION No.',
+        what='Waveform: UTILITY list continues after VERSION No. (shared c850_ui items)',
         target='main', fw_versions=('1.13',),
         anchor=Anchor(sig=[0x35F1, 0x4020, 0xD26D, 0x424B, 0xD56D, 0xB6CC, 0x6450],
                       index=2, literal=True),
-        old=0x0C0E4DF6, routine='payload:waveform_utility_scroll',
+        old=0x0C0E4DF6, routine='payload:c850_ui_utility_scroll',
     ),
     'waveform_utility_select': PoolRedirect(
-        what='Waveform: switch between Center and Left in UTILITY',
+        what='Waveform: cycle playhead between Left 1/3, Center, and Left in UTILITY',
         target='main', fw_versions=('1.13',),
         anchor=Anchor(sig=[0x3551, 0x8000, 0xD22A, 0x420B, 0xE403, 0xA1CF, 0x0009],
                       index=2, literal=True),
-        old=0x0C0E4C14, routine='payload:waveform_utility_select',
+        old=0x0C0E4C14, routine='payload:c850_ui_utility_select',
+    ),
+    # 0x0C0C1010: the USB ANLZ manager set-up at mount (FUN_0C0C45B4), then the mod
+    # settings file on the stick (shared c850_ui, as in quant_loops).
+    'waveform_usb_settings': PoolRedirect(
+        what='Waveform: read the mod settings file on the stick at mount (shared c850_ui)',
+        target='main', fw_versions=('1.13',),
+        anchor=Anchor(sig=[0x1D01, 0xD575, 0xD775, 0x470B, 0x64D3, 0x2008, 0x8903], index=2, literal=True),
+        old=0x0C0C45B4, routine='payload:c850_ui_usb_mount',
     ),
     'waveform_center_marker': PoolRedirect(
-        what='Waveform: mark the centered playhead on the red cue strip',
+        what='Waveform: mark playhead and active loop span on the red cue strip',
         target='main', fw_versions=('1.13',),
         anchor=Anchor(sig=[0x430B, 0x2610, 0xD33A, 0x434B,
                            0xD435, 0x6042, 0xE700], index=2, literal=True),

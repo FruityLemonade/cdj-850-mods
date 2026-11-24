@@ -29,6 +29,13 @@ MAIN_PROFILE = ImageProfile(
     gate=SERVICE_GATE,
 )
 
+# Pool words inside the static boot-critical closure that a mod redirects
+# through the service-mode gate. The validator checks that each jumps to its
+# stock callee whenever either SERVICE_GATE byte is nonzero.
+#   0x0C064DDC  panel_tx_saved_cues (0x0C0664A8), read at 0x0C064CF2 in the
+#               DisplayTask display-update routine (waveform_center_marker).
+GATED_BOOT_POOLS = frozenset((0x0C064DDC,))
+
 # The DSP56371 program MAIN uploads over SHI as four contiguous big-endian
 # segments (0x0C155B28..0x0C1593A1, 0x3879 bytes). Segments 1-3 are stage
 # loaders that re-enter the DSP bootstrap ROM via JMP $FF0000; segment 4 holds

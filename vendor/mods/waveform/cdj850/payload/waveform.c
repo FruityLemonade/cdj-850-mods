@@ -27,7 +27,14 @@
 #include "c850_ui.h"
 
 #define WF_COLS              100
+#define WF_THIRD_COLUMN      (WF_COLS / 3)
 #define WF_CENTER_COLUMN     (WF_COLS / 2)
+
+#define WF_POS_THIRD         0u   /* default: 1/3 width, left-aligned (col 33) */
+#define WF_POS_CENTER        1u   /* centered (col 50) */
+#define WF_POS_LEFT          2u   /* left edge (col 0) */
+#define WF_POS_COUNT         3u
+#define WF_POS_FLAGS_MASK    (C850_UI_FLAG_WAVE_LEFT | C850_UI_FLAG_WAVE_CENTER)
 
 #define WF_ZOOM_CLOSE        0u   /* 3 frames/col = 300 frames = 4.0 s window */
 #define WF_ZOOM_MEDIUM       1u   /* 12 frames/col = 1200 frames = 16.0 s window */
@@ -39,11 +46,6 @@
 #define WF_DROPOUT_HOLD_FRAMES ((s32)((WF_DROPOUT_HOLD_MS * 75u + 999u) / 1000u))
 
 #define WF_MODE_TITLE        10u  /* INFO Page 1 (title + artist/BPM + waveform) */
-#define WF_MODE_UTILITY      12u
-#define WF_UTILITY_LEVEL     C850_U8(0x0C1E108C)
-#define WF_UTILITY_CURSOR    C850_U8(0x0C1E108D)
-#define WF_UTILITY_TIMEOUT   C850_U32(0x0C1E1078)
-#define WF_UTILITY_ITEM      7u   /* follows VERSION No. (item 6) */
 #define WF_TX_LAST           C850_U32(0x0C9D0AC0)
 #define WF_TX_FRAMES         0x0C9D07D0u
 #define WF_SLOT_VALID_BIT    0x80000000u
@@ -68,81 +70,161 @@ static s32 wf_last_pcm_frame;
 static u32 wf_last_pcm_ms;
 /* A full HISTORY name leaves no room for mod flags. Keep that choice in RAM. */
 static u8 wf_position_override;
+static u32 wf_loop_dc_seen;
+static u32 wf_loop_b0_seen;
+static u8 wf_loop_dc_fresh;
 
-static int wf_playhead_left(void)
+static u32 wf_playhead_pos(void)
 {
     if (wf_position_override != 0u)
-        return wf_position_override == 2u;
-    return c850_ui_flag(C850_UI_FLAG_WAVE_LEFT);
+        return (u32)(wf_position_override - 1u);
+    if (c850_ui_flag(C850_UI_FLAG_WAVE_LEFT))
+        return WF_POS_LEFT;
+    if (c850_ui_flag(C850_UI_FLAG_WAVE_CENTER))
+        return WF_POS_CENTER;
+    return WF_POS_THIRD;
 }
 
-void waveform_utility_scroll(s8 direction, u8 steps)
+static s32 wf_playhead_column(u32 pos)
 {
-    s32 item = (s32)WF_UTILITY_CURSOR;
-    s32 next = item + (direction == 1 ? (s32)steps : -(s32)steps);
-
-    if (!waveform_on || (item < (s32)WF_UTILITY_ITEM && next < (s32)WF_UTILITY_ITEM)) {
-        C850_FN(0x0C0E4DF6, void, (s8, u8))(direction, steps);
-        return;
-    }
-    if (next < 0)
-        next = 0;
-    if (next > (s32)WF_UTILITY_ITEM)
-        next = (s32)WF_UTILITY_ITEM;
-    WF_UTILITY_TIMEOUT = 15000u;
-    if (next != item) {
-        WF_UTILITY_CURSOR = (u8)next;
-        C850_FN(0x0C06F71C, void, (int))(1);
-    }
+    if (pos == WF_POS_LEFT)
+        return 0;
+    if (pos == WF_POS_CENTER)
+        return WF_CENTER_COLUMN;
+    return WF_THIRD_COLUMN;
 }
 
-void waveform_utility_select(u32 level, int item)
+static const char *wf_playhead_label(u32 pos)
 {
-    int left;
+    if (pos == WF_POS_LEFT)
+        return "LEFT";
+    if (pos == WF_POS_CENTER)
+        return "CENTER";
+    return "LEFT 1/3";
+}
 
-    if (!waveform_on || level != 3u || item != (int)WF_UTILITY_ITEM) {
-        C850_FN(0x0C0E4C14, void, (u32, int))(level, item);
-        return;
-    }
-    left = !wf_playhead_left();
-    if (c850_ui_set_flag(C850_UI_FLAG_WAVE_LEFT, left))
+static void wf_track_loop_out(void)
+{
+    u32 dc = C850_LOOP_OUT_REQUEST, b0 = C850_LOOP_OUT_FRAME;
+
+    if (b0 != wf_loop_b0_seen)
+        wf_loop_dc_fresh = 0;
+    else if (dc != wf_loop_dc_seen)
+        wf_loop_dc_fresh = 1;
+    wf_loop_dc_seen = dc;
+    wf_loop_b0_seen = b0;
+}
+
+static u32 wf_effective_loop_out(u32 in)
+{
+    wf_track_loop_out();
+    if (wf_loop_dc_fresh && C850_LOOP_OUT_REQUEST > in)
+        return C850_LOOP_OUT_REQUEST;
+    return C850_LOOP_OUT_FRAME;
+}
+
+static const char *wf_mod_utility_value(void)
+{
+    if (!waveform_on)
+        return 0;
+    return c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF) ? "OFF" : "ON";
+}
+
+static void wf_mod_utility_select(void)
+{
+    c850_ui_set_flag(C850_UI_FLAG_WAVEFORM_OFF,
+                     !c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF));
+    wf_force_redraw = 1;
+}
+
+static const c850_ui_utility_item wf_mod_utility_item = {
+    90u, "WAVEFORM", wf_mod_utility_value, wf_mod_utility_select,
+};
+C850_UI_UTILITY_ITEM(wf_mod_utility_item);
+
+/* UTILITY: WAVE PLAYHEAD, visible while WAVEFORM is ON (c850_ui.c owns
+ * the list; the encoder press cycles Left 1/3 -> Center -> Left). */
+static const char *wf_utility_value(void)
+{
+    if (!waveform_on || c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF))
+        return 0;
+    return wf_playhead_label(wf_playhead_pos());
+}
+
+static void wf_utility_select(void)
+{
+    u32 next = (wf_playhead_pos() + 1u) % WF_POS_COUNT;
+    u32 flags = (next == WF_POS_LEFT) ? C850_UI_FLAG_WAVE_LEFT
+              : (next == WF_POS_CENTER) ? C850_UI_FLAG_WAVE_CENTER
+              : 0u;
+
+    if (c850_ui_set_flags(WF_POS_FLAGS_MASK, flags))
         wf_position_override = 0;
     else
-        wf_position_override = left ? 2u : 1u;
+        wf_position_override = (u8)(next + 1u);
     wf_force_redraw = 1;
-    WF_UTILITY_TIMEOUT = 15000u;
-    C850_FN(0x0C06F71C, void, (int))(1);
 }
 
-static void wf_utility_row(u32 row, u8 tag, u8 arrows, const char *text)
+static const c850_ui_utility_item wf_utility_item = {
+    95u, "WAVE PLAYHEAD", wf_utility_value, wf_utility_select,
+};
+C850_UI_UTILITY_ITEM(wf_utility_item);
+
+static void wf_set_red_col(volatile u8 *frame, u32 col)
 {
-    volatile u8 *record = (volatile u8 *)(0x0C9D0B18u + row * 0x105u);
-    u8 len = 0;
-
-    record[0] = tag;
-    record[1] = 0;
-    record[2] = arrows;
-    record[3] = 0;
-    while (text[len] != '\0') {
-        record[5u + len] = (u8)text[len];
-        len++;
-    }
-    record[4] = len;
+    frame[2u + col / 8u] |= (u8)(0x80u >> (col % 8u));
 }
 
-/* Add the playhead to the stock bitmap before SCIF1 calculates its checksum. */
+static void wf_toggle_red_col(volatile u8 *frame, u32 col)
+{
+    frame[2u + col / 8u] ^= (u8)(0x80u >> (col % 8u));
+}
+
+/* On close and medium zoom, replace the stock 0x60 red memory-cue bitmap with
+ * a single red tick at the playhead, or a red bar for an active loop with the
+ * playhead toggled off inside the bar. Overview zoom leaves 0x60 untouched. */
 int waveform_center_marker(void)
 {
     u32 before = WF_TX_LAST;
     int result = C850_FN(0x0C0664A8, int, (void))();
     u32 last = WF_TX_LAST;
+    u32 zoom = waveform_zoom;
 
-    if (waveform_on && wf_was_zoomed && waveform_zoom < WF_ZOOM_OVERVIEW &&
-        C850_DISPLAY_MODE == WF_MODE_TITLE && !wf_playhead_left() &&
+    if (waveform_on && !c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF) &&
+        wf_was_zoomed && zoom < WF_ZOOM_OVERVIEW &&
+        C850_DISPLAY_MODE == WF_MODE_TITLE &&
         last > before && last < 0x2Fu) {
         volatile u8 *frame = (volatile u8 *)(WF_TX_FRAMES + last * 16u);
-        if (frame[0] == 0x60u)
-            frame[2u + WF_CENTER_COLUMN / 8u] |= (u8)(0x80u >> (WF_CENTER_COLUMN % 8u));
+        if (frame[0] == 0x60u) {
+            s32 playhead_col = wf_playhead_column(wf_playhead_pos());
+            u32 i;
+
+            for (i = 2u; i <= 14u; i++)
+                frame[i] = 0u;
+
+            if (C850_LOOP_ACTIVE == 1u) {
+                u32 in_f = C850_LOOP_IN_FRAME;
+                u32 out_f = wf_effective_loop_out(in_f);
+                if (out_f > in_f) {
+                    s32 step = (zoom == WF_ZOOM_CLOSE) ? WF_STEP_CLOSE : WF_STEP_MEDIUM;
+                    s32 base = (s32)C850_PLAY_FRAME - playhead_col * step;
+                    s32 in_s = (s32)in_f;
+                    s32 out_s = (s32)out_f;
+
+                    if (out_s > base) {
+                        s32 c0 = (in_s <= base) ? 0 : (in_s - base) / step;
+                        s32 c1 = (out_s - 1 - base) / step;
+                        s32 col;
+
+                        if (c1 >= WF_COLS)
+                            c1 = WF_COLS - 1;
+                        for (col = c0; col <= c1 && col < WF_COLS; col++)
+                            wf_set_red_col(frame, (u32)col);
+                    }
+                }
+            }
+            wf_toggle_red_col(frame, (u32)playhead_col);
+        }
     }
     return result;
 }
@@ -381,21 +463,21 @@ void waveform_hook(u32 *regs, u32 *sp)
     (void)regs;
     (void)sp;
 
-    if (!waveform_on) {
+    if (!waveform_on || c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF)) {
         if (wf_was_zoomed) {
             wf_restore_overview();
             wf_was_zoomed = 0;
         }
+        waveform_zoom = WF_ZOOM_CLOSE;
+        wf_was_mode10 = 0;
+        if (C850_DISPLAY_MODE != WF_MODE_TITLE)
+            c850_ui_utility_draw();
         return;
     }
 
     if (C850_DISPLAY_MODE != WF_MODE_TITLE) {
         wf_was_mode10 = 0;
-        if (C850_DISPLAY_MODE == WF_MODE_UTILITY && WF_UTILITY_LEVEL == 2u &&
-            WF_UTILITY_CURSOR == WF_UTILITY_ITEM) {
-            wf_utility_row(1, 0x06, 0x0B, "WAVE PLAYHEAD");
-            wf_utility_row(2, 0x43, 0, wf_playhead_left() ? "LEFT" : "CENTER");
-        }
+        c850_ui_utility_draw();
         return;
     }
 
@@ -404,6 +486,8 @@ void waveform_hook(u32 *regs, u32 *sp)
         wf_was_mode10 = 0;
         return;
     }
+
+    wf_track_loop_out();
 
     zoom = waveform_zoom;
     if (zoom >= WF_ZOOM_OVERVIEW) {
@@ -422,7 +506,7 @@ void waveform_hook(u32 *regs, u32 *sp)
     }
 
     play_frame = (s32)C850_PLAY_FRAME;
-    has_pcm = wf_render_zoomed(zoom, play_frame, wf_playhead_left() ? 0 : WF_CENTER_COLUMN);
+    has_pcm = wf_render_zoomed(zoom, play_frame, wf_playhead_column(wf_playhead_pos()));
     source = C850_SOURCE_INDEX;
     track = C850_INFO_TRACK;
     now = C850_TICK_MS;
@@ -476,7 +560,7 @@ void waveform_rotary_hook(u32 *regs, u32 *sp)
 
     (void)regs;
 
-    if (!waveform_on)
+    if (!waveform_on || c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF))
         return;
 
     st = C850_PLAYER_STATE;

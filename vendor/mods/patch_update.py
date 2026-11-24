@@ -173,12 +173,18 @@ def registry(model):
     return reg
 
 
-def conf_rows():
+def conf_rows(model=None):
     """{mod: the registry names of its knobs}. A knob is named CDJ_GUI_<NAME>
     or CDJ_MAIN_<NAME> after its patch_gui/patch_main entry, so one mod
-    (three_band) stands for every patch it switches on."""
+    (three_band) stands for every patch it switches on. With a model, a mod's
+    MOD_ENV_<MODEL> list replaces its MOD_ENV (the CDJ-350 ports name other
+    patches than the CDJ-850 ones)."""
+    rows = mod_rows.load(layout.Layout())
+    if model:
+        by_key = {row.key: row for row in mod_rows.load(layout.Layout(), model)}
+        rows = [by_key.get(row.key, row) for row in rows]
     return {row.key: [re.sub(r'^CDJ_(GUI|MAIN)_', '', knob).lower() for knob in row.env.split('+')]
-            for row in mod_rows.load(layout.Layout())}
+            for row in rows}
 
 
 def section_version(header):
@@ -201,7 +207,7 @@ def main():
         die('--version/--keep-version only apply to flat CDJ updates')
 
     reg = registry(model)
-    rows = {key: [n for n in knobs if n in reg] for key, knobs in conf_rows().items()}
+    rows = {key: [n for n in knobs if n in reg] for key, knobs in conf_rows(model).items()}
 
     if args == ['--list']:
         for key, patches in rows.items():
@@ -277,6 +283,10 @@ def main():
                                 '-- pass --force-version to patch anyway (untested)'
                                 % (target, '/'.join(wanted), version))
                 print('patch_update: %s not applied: %s' % (name, report[name][1]))
+        if (target == 'main' and usable and 'version_display' in mods
+                and 'version_display' not in usable
+                and (version in mods['version_display'].fw_versions or force_version)):
+            usable.append('version_display')
         patched = mod.patch(image, usable, model, report, spans.setdefault(target, {})) if usable else image
         if patched == image:
             continue

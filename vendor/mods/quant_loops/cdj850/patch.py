@@ -5,7 +5,7 @@ Only while a beat grid of the loaded USB track is in RAM (the grid gave the
 deck's tempo, the same proof bpm_decimals uses); otherwise every routine
 passes the stock values through. Code is C in payload/quant_loops.c (shared
 SDRAM payload, mods/payloadbuild.py) plus the shared payload/common/c850_ui.c
-(PAYLOAD_COMMON) and loop_tick.c; the patches are nine pool-word redirects and
+(PAYLOAD_COMMON) and loop_tick.c; the patches are eleven pool-word redirects and
 one hook on a shared span, no cave bytes. Section 4b.9 of
 docs/cdj850-modding.md has the trace.
 
@@ -41,6 +41,18 @@ docs/cdj850-modding.md has the trace.
   (hot_cues redirects the same word to the same routine; the second finds it
   there). It calls quant_loops_key_filter: BEAT SELECT + LOOP IN switches
   quantize (saved in the settings record, c850_ui.h); off = every path stock.
+* quant_loops_utility_scroll / _utility_select: pools 0x0C0E797C
+  (utility_scroll_item, read at 0x0C0E77C4) and 0x0C0E7F10
+  (utility_set_menu_level, read at 0x0C0E7E64): the shared UTILITY list
+  c850_ui_utility_scroll / _select (waveform redirects the same words to the
+  same routines). Item QUANTIZE DRIFT after VERSION No. switches the drift
+  correction ON/OFF (saved, c850_ui.h); its rows are drawn by
+  c850_ui_flash_hook.
+* quant_loops_usb_settings: pool 0x0C0C11E8 (FUN_0C0C45B4, the USB ANLZ
+  manager set-up of a newly mounted stick), read only at 0x0C0C1010 in
+  FUN_0C0C0F88: the shared c850_ui_usb_mount, which calls it and then reads
+  the mod settings file /PIONEER/MODSET.DAT from the stick (c850_ui.h;
+  waveform redirects the same word to the same routine).
 * quant_loops_flash: hook (c850_ui_flash_hook) on the tail of
   display_stage_bpm, 0x0C0642AA..0x0C0642B8 (the shared bpm999 /
   bpm_decimals span), after bpm_decimals: QUANTIZE ON / QUANTIZE OFF on the
@@ -116,6 +128,20 @@ MODS = {
         'quant loops: BEAT SELECT + LOOP IN switches quantize (shared key filter)',
         [0xD44E, 0x2AD1, 0xDE4E, 0x4E0B, 0x2401, 0xD94E], 2,
         0x0C0DD492, 'c850_ui_keys'),
+    # The waveform mod's UTILITY words (mods/waveform/cdj850/patch.py), same routines.
+    'quant_loops_utility_scroll': _redirect(
+        'quant loops: UTILITY list continues after VERSION No. (shared c850_ui items)',
+        [0x35F1, 0x4020, 0xD26D, 0x424B, 0xD56D, 0xB6CC, 0x6450], 2,
+        0x0C0E4DF6, 'c850_ui_utility_scroll'),
+    'quant_loops_utility_select': _redirect(
+        'quant loops: QUANTIZE DRIFT ON/OFF in UTILITY (shared c850_ui items)',
+        [0x3551, 0x8000, 0xD22A, 0x420B, 0xE403, 0xA1CF, 0x0009], 2,
+        0x0C0E4C14, 'c850_ui_utility_select'),
+    # 0x0C0C100C: mov.l r0,@(4,r13); mov.l @(0x0C0C11E4),r5; mov.l @(0x0C0C11E8),r7; jsr @r7;
+    # mov r13,r4; tst r0,r0; bt
+    'quant_loops_usb_settings': _redirect(
+        'quant loops: read the mod settings file on the stick at mount (shared c850_ui)',
+        [0x1D01, 0xD575, 0xD775, 0x470B, 0x64D3, 0x2008, 0x8903], 2, 0x0C0C45B4, 'c850_ui_usb_mount'),
     'quant_loops_flash': Mod(
         what='quant loops: QUANTIZE ON / OFF on the display after a toggle',
         target='main',

@@ -8,6 +8,8 @@ See docs/cdj850-modding.md section 4b.8.
 """
 from sigpatch import Anchor, Mod, PoolRedirect
 
+PAYLOAD_COMMON = ('c850_ui',)
+
 BPM_SITE = dict(
     sig=[0xD62E, 0x6260, 0x2228, 0x8902, 0xD62A, 0x6061, 0x8154],
     start=0,
