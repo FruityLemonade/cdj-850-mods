@@ -5,11 +5,12 @@
  * Inserts 3 unused DB item codes (0x13, 0x14, 0x15 -> valid empty buffer
  * rec + 0x7BC in FUN_0C074824) at indices 2..4 of each loaded USB DB record
  * (0x0C9D44D4), shifting original Page 2+ items down by one page. When the
- * user views INFO Page 2 (mode 11, cursor 2), renders centered, unhighlighted,
- * icon-free rows (tag 0x11..0x13, attr0 0x00) showing beat-in-bar, actual BPM,
- * 4-beat boxes, and a 13-step sub-beat phase sweep using only 32-bit integer
- * math and glyphs supported by the CDJ-850 dot matrix & vfd_render.h.
- * Also snaps INFO cursor across 3..4 so Page 2 steps in one rotary click.
+ * user views INFO Page 2 (mode 11, cursor 2), overrides outgoing 0x80 mode to
+ * 7 (3-row centered layout with no icon column or scrollbar) and renders
+ * centered, unhighlighted, icon-free rows (tag 0x11..0x13, attr0 0x00) showing
+ * beat-in-bar, actual BPM, 4-beat boxes, and a 13-step sub-beat phase sweep
+ * using only 32-bit integer math and glyphs supported by the CDJ-850 dot matrix
+ * & vfd_render.h. Also snaps INFO cursor across 3..4 for 1-click Page 2 nav.
  */
 #include "c850.h"
 
@@ -23,6 +24,7 @@
 #define PM_CODE_1       0x14u
 #define PM_CODE_2       0x15u
 
+#define PM_MODE_CENTER  7u
 #define PM_MODE_INFO    11u
 #define PM_PHASE_STEPS  13u
 
@@ -382,4 +384,15 @@ void phase_meter_hook(u32 *regs, u32 *sp)
     phase_meter_format(&st, rows, lens);
     for (r = 0; r < 3; r++)
         pm_write_row(r, rows[r], lens[r]);
+
+    /* Switch the outgoing 0x80 header from INFO list mode (0x0B) to 3-row
+     * centered mode (0x07) so the physical Panel CPU centers all 3 rows across
+     * the full 100 px width without reserving a left icon/category column.
+     * FUN_0C0622B0 restores C850_DISPLAY_MODE = 11 on the next DisplayTask pass. */
+    C850_DISPLAY_MODE = PM_MODE_CENTER;
+    C850_U8(0x0C9D0AFCu) = 0u;
+    C850_U8(0x0C9D0AFDu) = 0u;
+    C850_U16(0x0C9D0AFEu) = 0u;
+    C850_U16(0x0C9D0B00u) = 0u;
+    C850_U8(0x0C9D0B14u) &= 0x1Fu;
 }
