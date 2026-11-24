@@ -149,8 +149,105 @@ static u32 ui_flags2(void)
     return b & C850_UI_FLAGS2_MASK;
 }
 
+/* ---- settings file on the stick ---- */
+
+#define UI_ANLZ_MOUNT       C850_FN(0x0C0C45B4, int, (void *, u32))  /* stock word of pool 0x0C0C11E8 */
+#define UI_FOPEN            C850_FN(0x0C088F74, void *, (const u16 *, u32, const u16 *, const char *))
+#define UI_FREAD            C850_FN(0x0C0890E6, int, (void *, u32, void *))
+#define UI_FWRITE           C850_FN(0x0C08910C, int, (const void *, u32, void *))
+#define UI_FCLOSE           C850_FN(0x0C088FCE, int, (void *))
+
+static const u16 ui_usb_path[] = {
+    '/', 'P', 'I', 'O', 'N', 'E', 'E', 'R', '/', 'M', 'O', 'D', 'S', 'E', 'T', '.', 'D', 'A', 'T', 0,
+};
+static u16 ui_usb_drive;             /* drive letter of the mounted stick; 0 = none seen */
+static u8 ui_usb_have;               /* 1: the flags below are the stick's */
+static u32 ui_usb_flags;
+
+volatile u32 c850_ui_usb_loads;      /* evidence: files read at mount */
+volatile u32 c850_ui_usb_saves;      /* files written */
+volatile u32 c850_ui_usb_errors;     /* opens or writes that failed, bad files */
+
+static const char ui_usb_magic[8] = C850_UI_USB_MAGIC;
+#define UI_FLAGS_ALL        (C850_UI_FLAGS_MASK | (C850_UI_FLAGS2_MASK << 4))
+
+static void ui_usb_load(void)
+{
+    u8 buf[C850_UI_USB_SIZE];
+    void *f;
+    int n, i;
+
+    ui_usb_have = 0;
+    f = UI_FOPEN(&ui_usb_drive, 0, ui_usb_path, "r");
+    if (f == 0)
+        return;                      /* no file yet: the flash flags stay */
+    n = UI_FREAD(buf, sizeof buf, f);
+    UI_FCLOSE(f);
+    if (n != (int)sizeof buf || buf[8] != C850_UI_USB_VERSION || buf[9] < 4u) {
+        c850_ui_usb_errors++;
+        return;
+    }
+    for (i = 0; i < 8; i++)
+        if (buf[i] != (u8)ui_usb_magic[i]) {
+            c850_ui_usb_errors++;
+            return;
+        }
+    ui_usb_flags = ((u32)buf[12] << 24 | (u32)buf[13] << 16 | (u32)buf[14] << 8 | buf[15]) & UI_FLAGS_ALL;
+    ui_usb_have = 1;
+    c850_ui_usb_loads++;
+}
+
+static int ui_usb_save(u32 flags)
+{
+    u8 buf[C850_UI_USB_SIZE];
+    void *f;
+    int i, n;
+
+    if (ui_usb_drive == 0)
+        return 0;
+    for (i = 0; i < 8; i++)
+        buf[i] = (u8)ui_usb_magic[i];
+    buf[8] = C850_UI_USB_VERSION;
+    buf[9] = 4;
+    buf[10] = buf[11] = 0;
+    buf[12] = (u8)(flags >> 24);
+    buf[13] = (u8)(flags >> 16);
+    buf[14] = (u8)(flags >> 8);
+    buf[15] = (u8)flags;
+    f = UI_FOPEN(&ui_usb_drive, 0, ui_usb_path, "w+");
+    if (f == 0) {
+        c850_ui_usb_errors++;
+        return 0;
+    }
+    n = UI_FWRITE(buf, sizeof buf, f);
+    UI_FCLOSE(f);
+    if (n != (int)sizeof buf) {
+        c850_ui_usb_errors++;
+        return 0;
+    }
+    c850_ui_usb_saves++;
+    return 1;
+}
+
+/* Pool 0x0C0C11E8 (read only at 0x0C0C1010 in FUN_0C0C0F88): the stock USB
+ * ANLZ manager set-up of a newly mounted stick, which opens (and creates)
+ * <drive>:/PIONEER/USBANLZ/USBMNG.DAT. The drive letter is the first
+ * halfword of its drive record (ctx + 0xC, as anlz_find_or_create uses it). */
+int c850_ui_usb_mount(void *anlz, u32 arg)
+{
+    int r = UI_ANLZ_MOUNT(anlz, arg);
+
+    if (anlz != 0 && ((u32)anlz & 3u) == 0) {
+        ui_usb_drive = *(const u16 *)((const u8 *)anlz + 0xC);
+        ui_usb_load();
+    }
+    return r;
+}
+
 static u32 ui_flags(void)
 {
+    if (ui_usb_have)
+        return ui_usb_flags;
     return ui_flags1() | (ui_flags2() << 4);
 }
 
@@ -163,10 +260,18 @@ int c850_ui_set_flags(u32 mask, u32 value)
 {
     u32 m1 = mask & C850_UI_FLAGS_MASK;
     u32 m2 = (mask >> 4) & C850_UI_FLAGS2_MASK;
+    u32 all = (ui_flags() & ~mask) | (value & mask & UI_FLAGS_ALL);
     u32 v1, v2;
+    int saved = 0;
 
+    /* the stick first: it has room whatever the HISTORY name */
+    if (ui_usb_save(all)) {
+        ui_usb_flags = all;
+        ui_usb_have = 1;
+        saved = 1;
+    }
     if ((m2 && !ui_name_short(0x1E)) || (m1 && !ui_name_short(0x1F)))
-        return 0;
+        return saved;
     if (m1) {
         v1 = (ui_flags1() & ~m1) | (value & m1);
         C850_UI_FLAGS_BYTE = v1 ? (u8)(C850_UI_FLAGS_MAGIC | v1) : 0;

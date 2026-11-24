@@ -39,6 +39,15 @@
  * c850_ui_utility_draw (called from the display hooks) writes the title and
  * the value on rows 1 and 2. Stock FUN_0C067B8C draws nothing for items > 6.
  *
+ * Settings file on the stick (prototype). When a USB stick mounts
+ * (c850_ui_usb_mount on pool 0x0C0C11E8, after the stock ANLZ manager set-up
+ * FUN_0C0C45B4) the mod flags are read from <drive>:/PIONEER/MODSET.DAT; from
+ * then on they come from that file and every c850_ui_set_flags also rewrites
+ * it, so the settings travel with the stick (and need no room in the
+ * HISTORY name). A stick without the file keeps the flags of the flash
+ * record until the first change, which creates the file. File: 16 bytes,
+ * "C850MODS", version 1, length 4, two zero bytes, the flags word (u32 BE).
+ *
  * Flash. c850_ui_flash(text) shows `text` on the dot matrix for
  * C850_UI_FLASH_MS (from playertask; the display hook c850_ui_flash_hook runs
  * in DisplayTask on the tail of display_stage_bpm and puts the rows back).
@@ -84,6 +93,12 @@ int c850_ui_flag(u32 flag);                     /* 1 = set */
 int c850_ui_set_flag(u32 flag, int on);         /* 1 = changed and saved, 0 = no room (long name) */
 int c850_ui_set_flags(u32 mask, u32 value);     /* atomic multi-flag update + single save */
 int c850_ui_quantize(void);                     /* 1 = grid snapping on */
+
+/* ---- settings file on the USB stick (pool 0x0C0C11E8) ---- */
+#define C850_UI_USB_MAGIC        "C850MODS"
+#define C850_UI_USB_VERSION      1
+#define C850_UI_USB_SIZE         16
+int c850_ui_usb_mount(void *anlz, u32 arg);    /* stock FUN_0C0C45B4, then load the file */
 
 /* ---- UTILITY items (after VERSION No.) ---- */
 #define C850_UI_UTILITY_FIRST    7u              /* VERSION No. is stock item 6 */

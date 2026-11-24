@@ -64,6 +64,14 @@ MODS = {
                       index=2, literal=True),
         old=0x0C0E4C14, routine='payload:c850_ui_utility_select',
     ),
+    # 0x0C0C1010: the USB ANLZ manager set-up at mount (FUN_0C0C45B4), then the mod
+    # settings file on the stick (shared c850_ui, as in quant_loops).
+    'waveform_usb_settings': PoolRedirect(
+        what='Waveform: read the mod settings file on the stick at mount (shared c850_ui)',
+        target='main', fw_versions=('1.13',),
+        anchor=Anchor(sig=[0x1D01, 0xD575, 0xD775, 0x470B, 0x64D3, 0x2008, 0x8903], index=2, literal=True),
+        old=0x0C0C45B4, routine='payload:c850_ui_usb_mount',
+    ),
     'waveform_center_marker': PoolRedirect(
         what='Waveform: mark playhead and active loop span on the red cue strip',
         target='main', fw_versions=('1.13',),
