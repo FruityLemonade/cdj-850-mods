@@ -154,8 +154,14 @@ static void wf_set_red_col(volatile u8 *frame, u32 col)
     frame[2u + col / 8u] |= (u8)(0x80u >> (col % 8u));
 }
 
-/* Mark the playhead (when not at column 0) and any active loop span on the
- * stock 0x60 red cue strip before SCIF1 calculates its checksum. */
+static void wf_toggle_red_col(volatile u8 *frame, u32 col)
+{
+    frame[2u + col / 8u] ^= (u8)(0x80u >> (col % 8u));
+}
+
+/* On close and medium zoom, replace the stock 0x60 red memory-cue bitmap with
+ * a single red tick at the playhead, or a red bar for an active loop with the
+ * playhead toggled off inside the bar. Overview zoom leaves 0x60 untouched. */
 int waveform_center_marker(void)
 {
     u32 before = WF_TX_LAST;
@@ -169,9 +175,10 @@ int waveform_center_marker(void)
         volatile u8 *frame = (volatile u8 *)(WF_TX_FRAMES + last * 16u);
         if (frame[0] == 0x60u) {
             s32 playhead_col = wf_playhead_column(wf_playhead_pos());
+            u32 i;
 
-            if (playhead_col > 0)
-                wf_set_red_col(frame, (u32)playhead_col);
+            for (i = 2u; i <= 14u; i++)
+                frame[i] = 0u;
 
             if (C850_LOOP_ACTIVE == 1u) {
                 u32 in_f = C850_LOOP_IN_FRAME;
@@ -194,6 +201,7 @@ int waveform_center_marker(void)
                     }
                 }
             }
+            wf_toggle_red_col(frame, (u32)playhead_col);
         }
     }
     return result;
