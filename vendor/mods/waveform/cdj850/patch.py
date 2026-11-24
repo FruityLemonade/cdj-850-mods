@@ -8,7 +8,9 @@ phase_meter). Scrolling counterclockwise on INFO Page 1 (cursor 0) zooms out:
 close (4 s) -> medium (16 s) -> whole-track overview; scrolling clockwise zooms
 back in before advancing to INFO Page 2. Code is C in payload/waveform.c.
 """
-from sigpatch import Mod
+from sigpatch import Anchor, Mod, PoolRedirect
+
+PAYLOAD_COMMON = ('c850_ui',)
 
 # Tail of display_stage_bpm, as in mods/bpm999/cdj850/patch.py.
 BPM_SITE = dict(
@@ -47,5 +49,26 @@ MODS = {
         hook=True,
         routine='payload:waveform_rotary_hook',
         **ROTARY_INFO_SITE,
+    ),
+    'waveform_utility_scroll': PoolRedirect(
+        what='Waveform: scroll to the playhead setting after VERSION No.',
+        target='main', fw_versions=('1.13',),
+        anchor=Anchor(sig=[0x35F1, 0x4020, 0xD26D, 0x424B, 0xD56D, 0xB6CC, 0x6450],
+                      index=2, literal=True),
+        old=0x0C0E4DF6, routine='payload:waveform_utility_scroll',
+    ),
+    'waveform_utility_select': PoolRedirect(
+        what='Waveform: switch between Center and Left in UTILITY',
+        target='main', fw_versions=('1.13',),
+        anchor=Anchor(sig=[0x3551, 0x8000, 0xD22A, 0x420B, 0xE403, 0xA1CF, 0x0009],
+                      index=2, literal=True),
+        old=0x0C0E4C14, routine='payload:waveform_utility_select',
+    ),
+    'waveform_center_marker': PoolRedirect(
+        what='Waveform: mark the centered playhead on the red cue strip',
+        target='main', fw_versions=('1.13',),
+        anchor=Anchor(sig=[0x430B, 0x2610, 0xD33A, 0x434B,
+                           0xD435, 0x6042, 0xE700], index=2, literal=True),
+        old=0x0C0664A8, routine='payload:waveform_center_marker',
     ),
 }

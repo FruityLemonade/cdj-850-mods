@@ -62,7 +62,8 @@ typedef void c850_ui_tick_fn(void);
 #define C850_UI_FLAGS_MAGIC     0x52            /* written with any flag set; 0 = none */
 #define C850_UI_FLAG_QUANT_OFF  0x01            /* quantize off (default on) */
 #define C850_UI_FLAG_HOT_CUES   0x08            /* hot-cue mode on */
-#define C850_UI_FLAGS_MASK      (C850_UI_FLAG_QUANT_OFF | C850_UI_FLAG_HOT_CUES)
+#define C850_UI_FLAG_WAVE_LEFT  0x04
+#define C850_UI_FLAGS_MASK      (C850_UI_FLAG_QUANT_OFF | C850_UI_FLAG_HOT_CUES | C850_UI_FLAG_WAVE_LEFT)
 
 int c850_ui_flag(u32 flag);                     /* 1 = set */
 int c850_ui_set_flag(u32 flag, int on);         /* 1 = changed and saved, 0 = no room (long name) */
