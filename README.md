@@ -2,44 +2,70 @@
 
 [Open the patcher](https://fruitylemonade.github.io/cdj-850-mods/)
 
-Custom firmware for the Pioneer CDJ-850. Pick the mods you want in the browser and download a ready-to-install update file.
+Custom firmware for the Pioneer CDJ-850. Choose a build in the browser and download a ready-to-install update file.
 
 > [!WARNING]
-> Custom firmware can cause playback problems or leave the deck unable to boot. The INFO rating display, BPM lock, Phase meter, Zoomed scrolling waveform and Browse history &amp; sort have been tested in the emulator and still need verification on a physical deck. Keep the original update for recovery.
+> Custom firmware can cause playback problems or leave the deck unable to boot. The mods have been tested in the emulator, and most still need verification on a physical deck. Keep the original update for recovery.
 
 ## How to use it
 
 1. Get the original Pioneer CDJ-850 **v1.13** update file, `C850MAIN.UPD`.
-2. Open the [patcher](https://fruitylemonade.github.io/cdj-850-mods/) and choose that file.
-3. Tick the mods you want (see the table below).
-4. Enter a version number in `D.DD` format. Use `0.13` if you want to reinstall modded builds with the same label and restore stock directly from the original `1.13` file. The patcher defaults to `1.14`. The USB updater skips a matching `1.xx` version.
+2. Open the [patcher](https://fruitylemonade.github.io/cdj-850-mods/) and choose that file. The patcher checks that it is the unmodified v1.13 update.
+3. Choose a build: **Standard**, **Experimental** or **Restore stock** (see below).
+4. Enter an output version in `D.DD` format. The default is `1.14`. The USB updater skips a file whose version matches the one already installed, so give each new install a different number. Use `0.13` if you want to reinstall modded builds under the same label and restore stock straight from the original `1.13` file.
 5. Download `C850MAIN.UPD` and copy it to the root of a FAT32 USB stick. Power on the deck while holding **USB SELECT + RELOOP**. Insert the stick when prompted. Once the display shows **COMPLETE!**, turn the deck off and back on.
 
 Your firmware file never leaves your computer. All the patching happens in the browser.
 
-## Available mods
+## Builds
 
-All mods are off until you tick them, and you can combine them freely.
+| Build | What you get |
+|---|---|
+| **Standard** | Every emulator-tested mod. The core mods are always on; the optional ones can be switched on or off on the deck. |
+| **Experimental** | Everything in Standard, plus the features still in development: Hot cues, Zoomed scrolling waveform and Loop roll. |
+| **Restore stock** | The unmodified Pioneer v1.13 firmware with a new version number, to roll back over a modded build. |
+
+### Switching mods on the deck
+
+Optional mods appear in the **UTILITY** menu after **VERSION No.** Hold **MENU/UTILITY**, turn the rotary selector to the item and press it to change the value. Optional mods start **ON**.
+
+The settings are saved to `PIONEER/MODSET.DAT` on the USB stick, so they travel with the stick. A stick without that file uses the deck's own settings until you change one, which creates the file.
+
+## Mods
+
+### Always on (Standard and Experimental)
 
 | Mod | What it does | How to use it on the deck |
 |---|---|---|
-| **USB WIDE tempo** | Gives you ±100% tempo for USB tracks. | Press **TEMPO** to step through ±6%, ±10%, ±16% and **WIDE**, the same cycle as on a CD. |
+| **Version display** | **VERSION No.** shows the custom version followed by the base firmware, for example `Ver. 1.14 (1.13)`. | Open **UTILITY** and turn to **VERSION No.** |
+| **BPM up to 999** | Raises the BPM limit from 180 to 999, for both rekordbox beat grids and the BPM display. Useful for very fast genres. | Nothing to do. Fast tracks show and play with their real BPM. |
 | **USB FLAC playback** | Plays stereo FLAC from USB at 16 or 24 bits and 44.1 or 48 kHz. The deck resamples 48 kHz audio to 44.1 kHz and uses the upper 16 bits of 24-bit audio, as it does for WAV. | Load and seek through a FLAC track as you would any other track. |
-| **Hot cues** *unfinished* | Turns **BEAT 1**, **2** and **4** into hot cues A, B and C. Reads the hot cues you set in rekordbox, and saves new ones back to the USB stick. The beat LEDs show which slots are set (lit) and which are empty (blinking). With **Quantized loops** on, a new cue lands on the nearest beat. | Press **BEAT SELECT + RELOOP** to switch hot-cue mode on or off (the display shows HOT CUE ON/OFF, and the setting is saved). Press a pad to jump to its cue, or to set one if the slot is empty. Hold **BEAT 8** and press a pad to delete its cue. *Not ready for live use yet: a jump takes a few seconds, because the deck first reads about 5 seconds of audio from the stick (the same wait as calling a memory cue).* |
-| **Quantized loops** | Makes loops snap to the nearest beat of the rekordbox grid, behind or ahead: auto beat loops, LOOP IN and LOOP OUT. Loops stay in time however many times they repeat. Needs USB tracks analysed in rekordbox. | Press **BEAT SELECT + LOOP IN** to switch quantize on or off (the display shows QUANTIZE ON/OFF, and the setting is saved). |
+| **USB WIDE tempo** | Gives you ±100% tempo for USB tracks. | Press **TEMPO** to step through ±6%, ±10%, ±16% and **WIDE**, the same cycle as on a CD. |
 | **Loop resize** | Halves or doubles a playing loop, following the beat grid when the track has one. | While a loop plays, press **CUE/LOOP CALL ◀** to halve it or **CALL ▶** to double it. Outside a loop the buttons work as normal. |
-| **BPM up to 999** | Raises the BPM limit from 180 to 999, for both rekordbox beat grids and the BPM display. Useful for very fast genres. | Nothing to do. Fast tracks just show and play with their real BPM. |
-| **BPM decimals** | Shows the actual BPM to two decimal places, for example `132.25`, in place of the rekordbox BPM. | Open the **INFO** view on a track with a beat grid. |
-| **BPM lock** | Enables the CDJ-350's BPM Lock across a ±100% range, matching loaded tracks to a chosen Master BPM and auto-switching to **WIDE** past ±16%. Shows Master/locked BPM on the 7-segment display and status flashes on the dot matrix. | Hold **BEAT SELECT + MASTER TEMPO** for 1 s to enter Master BPM edit mode and set the BPM with the rotary selector (press **BACK** or wait 10 s to exit). Short-press **BEAT SELECT + MASTER TEMPO** to toggle lock on or off. |
-| **Phase meter** | Displays the current beat in the bar (`1/4`–`4/4`), playing BPM, 4-beat boxes and a sub-beat phase indicator on **INFO** Page 2, shifting subsequent **INFO** pages down by one page. Works with BPM Lock on or off. | Press **INFO** on a USB track and turn the rotary selector one page down to view Page 2. |
-| **INFO screen order** | Shows the playing BPM, Camelot key and rekordbox rating under the USB track title (for example `128.23 12A *****`). One asterisk represents one star. With **MASTER TEMPO** off, the key follows the pitch to the nearest semitone. With **BPM decimals** enabled and a beat grid available, the playing BPM follows the current beat's tempo. | Press **INFO** on a USB track with BPM metadata. The first page shows the title, the combined row and the waveform. Turn the jog for Artist, Rating and Key, then Album and Comment. |
-| **Zoomed scrolling waveform** | Streams a live 50 Hz zoomed scrolling half-waveform in the 100×5 **INFO** Page 1 strip while keeping rows 1–2 untouched (compatible with **INFO screen order** and **Phase meter**). Samples the 32-second PCM ring buffer and falls back to the 400-column ANLZ `PWAV` buffer or 100-column overview outside the buffered window; works on rekordbox USB, non-rekordbox USB, and Audio CD tracks. While zoomed in, the red cue strip marks the playhead (when not left-aligned at column 0) and any active loop's visible span; the green progress bar stays stock, and overview mode leaves both strips stock. | On **INFO** Page 1 (top cursor), turn the rotary selector counterclockwise to zoom out through three levels: close (4 s) → medium (16 s) → whole-track overview. Turn clockwise to zoom back in before scrolling to Page 2. Hold **MENU/UTILITY** and turn past **VERSION No.** to **WAVE PLAYHEAD**, then press the selector to cycle **LEFT 1/3** (default, column 33), **CENTER** (column 50), and **LEFT** (column 0) — saved with UTILITY settings unless the HISTORY name exceeds 29 characters. |
-| **Browse history &amp; sort** | Prefixes played rekordbox USB tracks with `*` in **BROWSE** after more than 20 seconds of playback (tracking up to 1,024 track IDs per mount across pauses, loops and reloads; cleared on USB stop, dismount or power-off), and lets you sort the **TRACK** list by BPM or key. | Play a track for >20 s to mark it. Tap **MENU** in **BROWSE** to cycle through **BPM**, **Key** and **Default** (the display briefly shows the chosen order), then open the **TRACK** category to apply it. |
-| **20-minute auto standby** | Puts the deck into standby after 20 minutes without use, instead of 4 hours. | Turn on **AUTO STANDBY** in the **UTILITY** menu. |
+| **Auto standby** | Lets you choose a standby timeout of 20, 40, 60 or 120 minutes instead of 4 hours. | Turn on **AUTO STANDBY** in **UTILITY**, then set **STANDBY TIME** (default 20 MIN). |
+
+### Optional (Standard and Experimental)
+
+| Mod | UTILITY item | What it does | How to use it on the deck |
+|---|---|---|---|
+| **Quantized loops** | **QUANTIZE**, **QUANTIZE DRIFT** | Makes auto beat loops, LOOP IN and LOOP OUT snap to the nearest beat of the rekordbox grid, behind or ahead. Drift correction keeps loops in time however many times they repeat. Needs USB tracks analysed in rekordbox. | Also toggled with **BEAT SELECT + LOOP IN** (the display shows QUANTIZE ON/OFF). |
+| **BPM decimals** | **BPM DECIMALS** | Shows the actual BPM to two decimal places, for example `132.25`, in place of the rekordbox BPM. | Open the **INFO** view on a track with a beat grid. |
+| **BPM lock** | **BPM LOCK** | Brings the CDJ-350's BPM Lock across a ±100% range: loaded tracks match a chosen Master BPM, switching to **WIDE** past ±16%. Shows the Master or locked BPM on the 7-segment display and status messages on the dot matrix. | Hold **BEAT SELECT + MASTER TEMPO** for 1 s to edit the Master BPM with the rotary selector (press **BACK** or wait 10 s to leave). Short-press **BEAT SELECT + MASTER TEMPO** to switch lock on or off. |
+| **Phase meter** | **PHASE METER** | Shows the beat in the bar (`1/4`–`4/4`), the playing BPM, four beat boxes and a sub-beat phase indicator on **INFO** page 2. Later **INFO** pages move down one page. Works with BPM lock on or off. | Press **INFO** on a USB track and turn the rotary selector one page down. |
+| **INFO screen order** | **INFO ORDER** | Shows the playing BPM, Camelot key and rekordbox rating under the USB track title, for example `128.23 12A *****` (one asterisk per star). With **MASTER TEMPO** off, the key follows the pitch to the nearest semitone. | Press **INFO** on a USB track. The first page shows the title, the combined row and the waveform. Turn the jog for Artist, Rating and Key, then Album and Comment. |
+| **Browse history &amp; sort** | **BROWSE MODS** | Marks rekordbox USB tracks played for more than 20 seconds with `*` in **BROWSE** (up to 1,024 tracks per stick, cleared when the stick is stopped or removed, or the deck is switched off), and sorts the **TRACK** list by BPM or key. | Tap **MENU** in **BROWSE** to cycle **BPM**, **Key** and **Default**, then open the **TRACK** category. |
+
+### In development (Experimental only)
+
+| Mod | UTILITY item | What it does | How to use it on the deck |
+|---|---|---|---|
+| **Hot cues** | **HOT CUES** | Turns **BEAT 1**, **2** and **4** into hot cues A, B and C. Reads the hot cues set in rekordbox and saves new ones to the USB stick. Lit beat LEDs mark set slots, blinking ones empty slots. With quantize on, a new cue lands on the nearest beat. | Press **BEAT SELECT + RELOOP** to switch hot-cue mode on or off. Press a pad to jump to its cue, or to set one in an empty slot. Hold **BEAT 8** and press a pad to delete its cue. *Not ready for live use: a jump takes a few seconds while the deck reads about 5 seconds of audio from the stick, the same wait as calling a memory cue.* |
+| **Zoomed scrolling waveform** | **WAVEFORM**, **WAVE PLAYHEAD** | Replaces the **INFO** page 1 waveform strip with a live zoomed scrolling waveform. Works on rekordbox USB, other USB and Audio CD tracks. While zoomed in, the red cue strip marks the playhead and any active loop. | On **INFO** page 1, turn the rotary selector counter-clockwise to zoom out: close (4 s), medium (16 s), whole track. Turn clockwise to zoom back in. **WAVE PLAYHEAD** places the playhead at **LEFT 1/3** (default), **CENTER** or **LEFT**. |
+| **Loop roll** | **LOOP ROLL** | Prototype slip loop: while a beat button is held the auto beat loop plays, and on release playback lands where the track would have been without the loop. Works on USB tracks within the buffered audio. | Press **BEAT SELECT + LOOP OUT** to switch roll mode on or off (ROLL ON/OFF, off again after power-on). Hold **BEAT 1**, **2**, **4** or **8** while playing. |
 
 ## Going back to stock firmware
 
-Install the original `C850MAIN.UPD` (v1.13) using the USB update procedure above. If the deck already shows `1.13` for a modded build, the updater will skip the original file. Open the patcher with the original v1.13 file, leave every mod unticked, and export with a different label such as `1.14`. Repacking with zero mods preserves the original firmware and changes the version label.
+Choose **Restore stock** in the patcher with the original v1.13 file and export it with a version number the deck does not already show, such as `1.15`, then install it with the USB update procedure above. If the deck shows `0.13`, you can instead install the original `C850MAIN.UPD` directly.
 
 ## How it works
 
@@ -59,9 +85,9 @@ python3 build.py
 python3 -m http.server 8000 --directory dist
 ```
 
-Open `http://localhost:8000/`. The build compiles the selectable combinations of mod payloads using the existing compiler driver. It needs no firmware file. GitHub Pages serves the static build from the `gh-pages` branch.
+Open `http://localhost:8000/`. The build compiles the mod payloads for each build using the existing compiler driver. It needs no firmware file. GitHub Pages serves the static build from the `gh-pages` branch.
 
-The tools and patch definitions in `vendor/` are copies from the [CDJ-850 emulator project](https://github.com/FruityLemonade/cdj-850-emulator); `vendor/UPSTREAM` names the emulator commit. The [pages workflow](.github/workflows/pages.yml) checks the emulator's `main` branch every hour, commits any change to `vendor/`, rebuilds the payloads and publishes the site, so the patcher always ships the newest mods. A new CDJ-850 mod in the emulator shows up as a workflow warning until it is added to `OPTIONS` in `patcher.py`, the browser adapter. See [LICENSE](LICENSE).
+The tools and patch definitions in `vendor/` are copies from the [CDJ-850 emulator project](https://github.com/FruityLemonade/cdj-850-emulator); `vendor/UPSTREAM` names the emulator commit. The [pages workflow](.github/workflows/pages.yml) checks the emulator's `main` branch every hour, commits any change to `vendor/`, rebuilds the payloads and publishes the site, so the patcher always ships the newest mods. A new CDJ-850 mod in the emulator shows up as a workflow warning until it is added to one of the build lists (`ALWAYS_ON`, `TESTED_TOGGLEABLE` or `DEV_TOGGLEABLE`) in `patcher.py`, the browser adapter. See [LICENSE](LICENSE).
 
 ### Enabling the repack counter
 
