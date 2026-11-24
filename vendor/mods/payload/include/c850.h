@@ -93,7 +93,27 @@ static inline s32 c850_effective_pitch(void)
 #define C850_INFO_TRACK         C850_S16(0x0C9D1D96)
 #define C850_DB_RECORDS         0x0C9D44D4u
 #define C850_DB_RECORD_SIZE     0x864u
+#define C850_DB_RECORD_ID(rec)  C850_U32((rec) + 0x10)
+#define C850_DB_RECORD_DRIVE(rec) C850_U16((rec) + 0x16)
+#define C850_DB_RECORD_TITLE(rec) ((rec) + 0x38u)
+#define C850_DB_USB_DRIVE       3u
+#define C850_DB_LOAD_SORT_MENU  0x0C0750D8u
+#define C850_DB_UNMOUNT         0x0C04F2B0u
+#define c850_db_record_of_track C850_FN(0x0C073F7C, u32, (int track))
 #define C850_ROW_SOURCE(r)      (0x0C9D196Fu + (r) * 0x100u)
+
+/* ---- BROWSE ---- */
+#define C850_NAV_VIEW           C850_U8(0x0CE6D0FD)
+#define C850_NAV_BROWSE         1u
+#define C850_BROWSE_CACHE_TITLE_OFFSET 0x14u  /* UTF-16 title after a cache entry's track ID */
+#define C850_BROWSE_MENU_LEVEL  C850_U8(0x0C1E108C)
+#define C850_DB_MENU_CACHE      0x0C0BBABEu
+#define C850_DB_TRACK_QUERY     0x0C07C330u
+#define C850_DB_SORT_CURSOR     0x0C11D224u
+#define C850_DB_FINISH_RESULTS  0x0C0BABACu
+#define C850_DB_RESULTS_COUNT(results) C850_U16((results) + 2)
+#define C850_DB_RESULTS_SORT(results)  C850_U8((results) + 4)
+#define C850_DB_RESULTS_INDEX(results) C850_U32((results) + 0x2C)
 
 /* ---- Keys (section 4b.1) ---- */
 #define C850_K0                 C850_U16(0x0CE6CA08) /* held keys, internal words */
