@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""waveform on the CDJ-850 MAIN 1.13: zoomed scrolling half-waveform on INFO Page 1.
+
+Streams a 100-column zoomed/scrolling waveform into the existing 100x5 VFD strip
+(0x0C9D1199 / 0x0C9D1188, transmitted by panel_tx_waveform at 0x0C0662AE) at up
+to 50 Hz while keeping rows 1-2 untouched (fully compatible with info_order and
+phase_meter). Scrolling counterclockwise on INFO Page 1 (cursor 0) zooms out:
+close (4 s) -> medium (16 s) -> whole-track overview; scrolling clockwise zooms
+back in before advancing to INFO Page 2. Code is C in payload/waveform.c.
+"""
+from sigpatch import Mod
+
+# Tail of display_stage_bpm, as in mods/bpm999/cdj850/patch.py.
+BPM_SITE = dict(
+    sig=[0xD62E, 0x6260, 0x2228, 0x8902, 0xD62A, 0x6061, 0x8154],
+    start=0,
+    end=7,
+)
+
+# INFO screen rotary scroll handler in FUN_0C0E655C (0x0C0E782E, 2-mod-4 aligned):
+#   movu.b @(0,r12),r0; mov.l @(0x0C0E7998,pc),r5; mov.b @(r0,r5),r9;
+#   mov #2,r2; extu.b r9,r6; cmp/ge r2,r6
+ROTARY_INFO_SITE = dict(
+    sig=[0x30C1, 0x8000, 0xD559, 0x095C, 0xE202, 0x669C, 0x3623],
+    start=0,
+    end=6,
+)
+
+MODS = {
+    'waveform': Mod(
+        what='Waveform: 50 Hz zoomed scrolling half-waveform in the 100x5 INFO Page 1 strip',
+        target='main',
+        fw_versions=('1.13',),
+        args=[],
+        literal=False,
+        hook=True,
+        after=('bpm999', 'bpm_decimals', 'bpm_lock_display', 'info_order', 'phase_meter'),
+        routine='payload:waveform_hook',
+        **BPM_SITE,
+    ),
+    'waveform_rotary': Mod(
+        what='Waveform: INFO Page 1 rotary CCW/CW zoom control (close -> medium -> overview)',
+        target='main',
+        fw_versions=('1.13',),
+        args=[],
+        literal=False,
+        hook=True,
+        routine='payload:waveform_rotary_hook',
+        **ROTARY_INFO_SITE,
+    ),
+}

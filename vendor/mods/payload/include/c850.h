@@ -139,9 +139,20 @@ static inline s32 c850_effective_pitch(void)
 #define C850_K2_CALL_NEXT   0x0200
 #define C850_K2_CALL_PREV   0x0100
 
-/* ---- Play position (section 4b units: 1 frame = 1/75 s = 588 samples) ---- */
+/* ---- Play position & PCM ring (section 4b units: 1 frame = 1/75 s = 588 samples) ---- */
 #define C850_PLAY_FRAME         C850_U32(0x0C7F647C) /* current play frame [emu] */
 #define C850_RING_READ_INDEX    C850_U16(0x0C7F645C)
+#define C850_RING_WRITE_INDEX   C850_U16(0x0C7F645E)
+#define C850_PCM_RING_BASE      0x0C1E8E5Cu          /* 2400 x 0x930 B stereo 16-bit BE PCM */
+#define C850_PCM_RING_SLOTS     2400u
+#define C850_PCM_SECTOR_BYTES   0x930u               /* 2352 B = 588 stereo 16-bit frames */
+
+/* ---- Waveform staging & ANLZ buffers (section 5, FUN_0C066402, FUN_0C0C2402) ---- */
+#define C850_WAVEFORM_SEQUENCE  C850_U8(0x0C9D1184)  /* 0x70 byte 1 sequence */
+#define C850_WAVEFORM_CHANGED   C850_U32(0x0C9D1188) /* set 1 to bump sequence and resend */
+#define C850_WAVEFORM_SAMPLES   0x0C9D1199u          /* 100 bytes sent by panel_tx_waveform */
+#define C850_WAVEFORM_PWAV      0x0CE65862u          /* 400 x 2 B ANLZ PWAV (h 0..31, w 0..7) */
+#define C850_WAVEFORM_OVERVIEW  0x0CE65B82u          /* 100 B overview (0..15) */
 
 /* ---- Loops (section 4b.2) ---- */
 #define C850_LOOP_ACTIVE        C850_U8(0x0CE6D0ED)
@@ -211,6 +222,7 @@ static inline s32 c850_effective_pitch(void)
 #define c850_grid_find_beat            C850_FN(0x0C0012E4, int, (u32 ctx, u32 time_ms, int mode))
 #define c850_grid_page_window          C850_FN(0x0C00119E, int, (u32 ctx, u32 file_id))
 #define c850_ring_sector_to_frame      C850_FN(0x0C00851E, u32, (int ring_sector))
+#define c850_sector_to_track           C850_FN(0x0C00586C, u32, (int ring_sector))
 /* cue_call_prev_next(next): 0 = CALL prev, 1 = CALL next (USB branch) */
 #define c850_cue_call_prev_next        C850_FN(0x0C0D3B1A, void, (int next))
 /* cue_select_from_list(src, 1): fills C850_JUMP_TARGET and C850_CUE_FRAME */
