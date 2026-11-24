@@ -45,7 +45,9 @@
  * then on they come from that file and every c850_ui_set_flags also rewrites
  * it, so the settings travel with the stick (and need no room in the
  * HISTORY name). A stick without the file keeps the flags of the flash
- * record until the first change, which creates the file. File: 16 bytes,
+ * record until the first change, which creates the file. A stick that
+ * refuses a write still takes the change in RAM (until the next mount) and
+ * the flash record as before. File: 16 bytes,
  * "C850MODS", version 1, length 4, two zero bytes, the flags word (u32 BE).
  *
  * Flash. c850_ui_flash(text) shows `text` on the dot matrix for
