@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Compile mod payloads and prepare a static site. No firmware input is needed."""
+"""Compile the two mod payloads and prepare a static site. No firmware input is needed."""
 import hashlib
 import json
 import os
 import shutil
 import sys
 from concurrent.futures import ProcessPoolExecutor
-from itertools import combinations
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
@@ -22,13 +21,16 @@ from launcher.model import load  # noqa: E402
 
 
 def package_engine(path, sources):
-    payload_mods = sorted(set(patcher.OPTIONS) & set(payloadbuild.payload_mods(patcher.MODEL)))
-    groups = [group for count in range(1, len(payload_mods) + 1)
-              for group in combinations(payload_mods, count)]
+    payload_mods = set(payloadbuild.payload_mods(patcher.MODEL))
+    groups = sorted({
+        tuple(sorted(set(spec["mods"]) & payload_mods))
+        for spec in patcher.BUILDS.values()
+        if spec["mods"]
+    })
     with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
         for source, name in sources:
             archive.writestr(ZipInfo(name), source.read_bytes(), compress_type=ZIP_DEFLATED)
-        with ProcessPoolExecutor(max_workers=4) as pool:
+        with ProcessPoolExecutor(max_workers=2) as pool:
             for group, payload in zip(groups, pool.map(payloadbuild.build, groups)):
                 if tuple(payload.mods) != group:
                     raise ValueError("Wrong payload returned for " + ", ".join(group))
@@ -36,13 +38,13 @@ def package_engine(path, sources):
                 archive.writestr(ZipInfo(key + ".bin"), payload.blob, compress_type=ZIP_DEFLATED)
                 archive.writestr(ZipInfo(key + ".json"), json.dumps(payload.symbols, sort_keys=True),
                                  compress_type=ZIP_DEFLATED)
-    print(f"Packaged {len(groups)} payload combinations", flush=True)
+    print(f"Packaged {len(groups)} payload builds", flush=True)
 
 
 def main():
     web = ROOT / "web"
     sources = [(ROOT / "patcher.py", "patcher.py")]
-    mod_dirs = patcher.OPTIONS.keys() | {"loader", "payload", "players"}
+    mod_dirs = patcher.MODS.keys() | {"loader", "payload", "players"}
     for path in sorted(VENDOR.rglob("*")):
         if not path.is_file() or path.suffix not in {".py", ".conf", ".bin", ".s", ".S", ".c", ".h", ".ld"}:
             continue
@@ -55,9 +57,16 @@ def main():
         "stockVersion": model.fw_version,
         "stockHash": model.upd_sha256[0],
         "counterUrl": os.environ.get("PATCH_COUNTER_URL", "").strip(),
-        "options": [
-            {"id": name, "title": title, "description": description}
-            for name, (title, description) in patcher.OPTIONS.items()
+        "builds": [
+            {
+                "id": build_id,
+                "title": spec["title"],
+                "badge": spec["badge"],
+                "description": spec["description"],
+                "alwaysOn": spec["alwaysOn"],
+                "toggleable": spec["toggleable"],
+            }
+            for build_id, spec in patcher.BUILDS.items()
         ],
     }
     stock_module = f"export default {json.dumps(config)};\n".encode("utf-8")

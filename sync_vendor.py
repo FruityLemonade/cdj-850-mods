@@ -73,12 +73,12 @@ def main():
     sys.dont_write_bytecode = True
     sys.path[:0] = [str(ROOT), str(VENDOR), str(VENDOR / "mods"), str(VENDOR / "scripts/firmware")]
     import patcher  # noqa: E402  (vendor/ must be in place first)
-    offered = set(patcher.OPTIONS) | NOT_OFFERED
+    offered = set(patcher.MODS) | NOT_OFFERED
     for conf in sorted((VENDOR / "mods").glob("*/mod.conf")):
         name = conf.parent.name
         if patcher.MODEL in mod_models(conf) and name not in offered:
             print(f"::warning title=New CDJ-850 mod::{name} is in the emulator but not offered "
-                  f"by the patcher. Add it to OPTIONS in patcher.py (or NOT_OFFERED in sync_vendor.py).")
+                  f"by the patcher. Add it to BUILDS in patcher.py (or NOT_OFFERED in sync_vendor.py).")
 
     print("changed" if changed or recorded is None else "unchanged")
 

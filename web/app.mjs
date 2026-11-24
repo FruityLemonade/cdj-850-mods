@@ -4,7 +4,10 @@ const get = (id) => document.getElementById(id);
 const picker = get("firmware");
 const pick = get("pick");
 const dropzone = get("dropzone");
-const modOptions = get("mods");
+const buildOptions = get("builds");
+const buildDetails = get("build-details");
+const alwaysOnList = get("always-on-list");
+const toggleableList = get("toggleable-list");
 const version = get("version");
 const build = get("build");
 const download = get("download");
@@ -17,15 +20,30 @@ let fileAttempt = 0;
 let downloadUrl = null;
 let displayedPatchCount = -1;
 
-const selected = () => [...modOptions.querySelectorAll("input:checked")].map((item) => item.value);
+const buildsById = new Map(stock.builds.map((item) => [item.id, item]));
+const selectedBuildId = () => buildOptions.querySelector("input:checked")?.value ?? stock.builds[0]?.id ?? "stable";
 const validVersion = () => /^[0-9]\.[0-9]{2}$/.test(version.value);
 
-for (const option of stock.options) {
-  const row = get("mod-template").content.cloneNode(true);
-  row.querySelector("input").value = option.id;
-  row.querySelector("strong").textContent = option.title;
-  row.querySelector("strong + span").textContent = option.description;
-  get("player-mods").append(row);
+for (const [index, option] of stock.builds.entries()) {
+  const card = get("build-template").content.cloneNode(true);
+  const radio = card.querySelector("input");
+  radio.value = option.id;
+  radio.checked = index === 0;
+  card.querySelector(".build-title strong").textContent = option.title;
+  const badge = card.querySelector(".badge");
+  badge.textContent = option.badge;
+  badge.dataset.kind = option.id;
+  card.querySelector(".build-desc").textContent = option.description;
+  get("build-options").append(card);
+}
+
+function renderFeatureList(list, items) {
+  list.replaceChildren();
+  for (const label of items) {
+    const li = document.createElement("li");
+    li.textContent = label;
+    list.append(li);
+  }
 }
 
 function status(message, tone = "") {
@@ -44,7 +62,6 @@ async function updatePatchCount(method) {
     });
     if (!response.ok) return;
     const { count } = await response.json();
-    // A delayed read or earlier write can arrive after a newer total.
     if (!Number.isSafeInteger(count) || count <= displayedPatchCount) return;
     displayedPatchCount = count;
     patchCount.textContent = `${count.toLocaleString()} firmware ${count === 1 ? "repack" : "repacks"} completed`;
@@ -63,18 +80,25 @@ function resetDownload() {
 }
 
 function renderControls() {
-  const count = selected().length;
+  const chosen = buildsById.get(selectedBuildId());
   const invalid = !validVersion();
   get("input-summary").textContent = input ? `Verified v${stock.stockVersion}` : checking ? "Verifying…" : "Awaiting file";
-  get("mod-summary").textContent = count;
+  get("build-summary").textContent = chosen ? chosen.title : "—";
+  if (chosen && (chosen.alwaysOn.length || chosen.toggleable.length)) {
+    renderFeatureList(alwaysOnList, chosen.alwaysOn);
+    renderFeatureList(toggleableList, chosen.toggleable);
+    buildDetails.hidden = false;
+  } else {
+    buildDetails.hidden = true;
+  }
   version.setAttribute("aria-invalid", String(invalid));
   build.disabled = busy || !input || invalid;
-  pick.disabled = modOptions.disabled = version.disabled = busy;
+  pick.disabled = buildOptions.disabled = version.disabled = busy;
   if (!busy && !downloadUrl) {
     if (invalid) status("Enter a version like 1.15.", "error");
     else if (!input) status("Choose an original firmware file.");
-    else if (count) status("Ready to apply your selections.");
-    else status("Ready to repack stock firmware.");
+    else if (chosen?.id === "stock") status("Ready to repack stock firmware.");
+    else status(`Ready to build ${chosen?.title.toLowerCase()}.`);
   }
 }
 
@@ -147,11 +171,11 @@ function updateSelections() {
   resetDownload();
   renderControls();
 }
-modOptions.addEventListener("change", updateSelections);
+buildOptions.addEventListener("change", updateSelections);
 version.addEventListener("input", updateSelections);
 
 build.addEventListener("click", () => {
-  const mods = selected();
+  const buildId = selectedBuildId();
   if (!input || busy || !validVersion()) return;
   const label = version.value;
 
@@ -185,7 +209,7 @@ build.addEventListener("click", () => {
     });
     worker.addEventListener("error", () => finish("Could not start the patching engine. Reload and try again.", "error"));
     const copy = input.slice(0);
-    worker.postMessage({ input: copy, mods, version: label }, [copy]);
+    worker.postMessage({ input: copy, build: buildId, version: label }, [copy]);
   } catch {
     finish("Could not start the patching engine. Reload and try again.", "error");
   }
