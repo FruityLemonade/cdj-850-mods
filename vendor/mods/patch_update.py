@@ -277,6 +277,10 @@ def main():
                                 '-- pass --force-version to patch anyway (untested)'
                                 % (target, '/'.join(wanted), version))
                 print('patch_update: %s not applied: %s' % (name, report[name][1]))
+        if (target == 'main' and usable and 'version_display' in mods
+                and 'version_display' not in usable
+                and (version in mods['version_display'].fw_versions or force_version)):
+            usable.append('version_display')
         patched = mod.patch(image, usable, model, report, spans.setdefault(target, {})) if usable else image
         if patched == image:
             continue
