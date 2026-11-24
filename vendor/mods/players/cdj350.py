@@ -15,6 +15,8 @@ LOADER_STARTUP = Startup(
     statics=0x0C1CC678, statics_end=0x0DCC2D34, blob_addr=0x0C1CC700,
 )
 
-# These USB audio pool words fall in the static boot-critical closure.
-# The validator requires the stock branches of their service-mode gates.
-GATED_BOOT_POOLS = frozenset((0x0C055BA4, 0x0C055634, 0x0C055644, 0x0C0B32D0))
+# These pool words fall in the static boot-critical closure: the USB audio
+# words (flac) and utility_display's word for utility_draw_list (0x0C0666A4,
+# read at 0x0C0665E8 only at UTILITY level 2; quant_loops' shared c350_ui
+# list). The validator requires the stock branches of their service-mode gates.
+GATED_BOOT_POOLS = frozenset((0x0C055BA4, 0x0C055634, 0x0C055644, 0x0C0B32D0, 0x0C0666A4))

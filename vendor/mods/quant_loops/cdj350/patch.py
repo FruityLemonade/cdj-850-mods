@@ -23,12 +23,21 @@ patches are eight pool-word redirects, no cave bytes.
 * quant_loops_drift: pool 0x0C0C7F7C (keys_state4_looping, 0x0C0D28AC), read
   only at 0x0C0C7D92 in player_key_dispatch_by_state (state 4): runs per-pass
   drift correction (cmd 0x1e, resize 1), then the stock handler.
+* quant_loops_utility_scroll / _select / _draw: pools 0x0C0C902C
+  (utility_scroll 0x0C0D641A, read at 0x0C0C8EFE), 0x0C0C9670
+  (utility_set_level 0x0C0D6374, read at 0x0C0C955A) and 0x0C0666A4
+  (utility_draw_list 0x0C063C88, read at 0x0C0665E8): the shared UTILITY list
+  of payload/common/c350_ui.c (PAYLOAD_COMMON). Items QUANTIZE and DRIFT FIX
+  after Ver switch snapping and the drift correction ON/OFF, saved in the
+  settings record (+0x17, c350_ui.h); both default on.
 """
 from sigpatch import Anchor, PoolRedirect
 
 NEXT_SECTOR = 0x0C006A92
 AUDIO_SEND_CMD = 0x0C0C7850
 STATE4_KEYS = 0x0C0D28AC
+
+PAYLOAD_COMMON = ('c350_ui',)
 
 
 def _redirect(what, sig, index, old, routine):
@@ -84,4 +93,19 @@ MODS = {
         [0x00A8, 0x0098, 0x00A8, 0x0098, 0xD37B, 0x432B, 0x4F26, 0xD37A,
          0x432B, 0x4F26, 0xD37A, 0x432B, 0x4F26], 10,
         STATE4_KEYS, 'quant_loops_drift_entry'),
+    # 0x0C0C8EF6: mov.b @(0x18,r15),r4; mov.b @(0x1c,r15),r5; mov.l @(0x0C0C902C),r3; jsr/n @r3 (level 2 rotary)
+    'quant_loops_utility_scroll': _redirect(
+        'quant loops: UTILITY list continues after Ver (shared c350_ui items)',
+        [0x8802, 0x8B07, 0x34F1, 0x4018, 0x35F1, 0x401C, 0xD34B, 0x434B], 6,
+        0x0C0D641A, 'c350_ui_utility_scroll'),
+    # 0x0C0C9554: mov.l @(cursor),r6; movu.b @r6,r5; mov.l @(0x0C0C9670),r3; jsr @r3; mov #3,r4 (list push)
+    'quant_loops_utility_select': _redirect(
+        'quant loops: QUANTIZE / DRIFT FIX ON/OFF in UTILITY (shared c350_ui items)',
+        [0x8802, 0x8B07, 0xD645, 0x3561, 0x8000, 0xD345, 0x430B, 0xE403], 5,
+        0x0C0D6374, 'c350_ui_utility_select'),
+    # 0x0C0665E8: mov.l @(0x0C0666A4),r3; jmp @r3 (utility_display, level 2)
+    'quant_loops_utility_draw': _redirect(
+        'quant loops: UTILITY rows of the mod items (shared c350_ui items)',
+        [0xD230, 0x3021, 0x8000, 0x8802, 0x8B02, 0xD32E, 0x432B, 0x4F26], 5,
+        0x0C063C88, 'c350_ui_utility_draw'),
 }

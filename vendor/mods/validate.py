@@ -829,7 +829,7 @@ def match_known_mods(target, stock_img, out_img, model, version, rep):
     available = module.mods_for(model)
     registry = patch_update.registry(model)
     rows = {row: [n for n in knobs if registry.get(n, (None,))[0] == target and version in available[n].fw_versions]
-            for row, knobs in patch_update.conf_rows().items()}
+            for row, knobs in patch_update.conf_rows(model).items()}
     rows = {row: names for row, names in rows.items() if names}
     candidates = list(rows.items()) + [('all the mods together', [n for names in rows.values() for n in names])]
     changed = changed_ranges(stock_img, out_img)

@@ -44,6 +44,11 @@ SECTIONS
         KEEP(*(.c850_ui_items.a))
         KEEP(*(.c850_ui_items))
         KEEP(*(.c850_ui_items.z))
+        /* CDJ-350 UTILITY items (C350_UI_UTILITY_ITEM, c350_ui.h), between
+           c350_ui.c's two sentinel words in .c350_ui_items.a and .z */
+        KEEP(*(.c350_ui_items.a))
+        KEEP(*(.c350_ui_items))
+        KEEP(*(.c350_ui_items.z))
     } > payload
 
     .data : ALIGN(4) {

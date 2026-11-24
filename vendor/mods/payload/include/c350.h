@@ -36,8 +36,33 @@ typedef signed int s32;
 #define C350_STATE_PAUSED_CDJ   5
 #define C350_STATE_CUED         6
 
-/* ---- BPM ---- */
+/* ---- BPM, pitch ---- */
 #define C350_BPM_BASE_TENTHS    C350_U16(0x0C9B8E24) /* 1280 = 128.0 BPM */
+#define C350_PITCH              C350_S16(0x0CD4853E) /* 1/100 %: fader top on +-10 = 1000 [emu] */
+#define C350_MASTER_TEMPO       C350_U8(0x0CD48BC4)  /* 1 = MASTER TEMPO on [emu] */
+
+/* ---- Track records (the DB record of a track handle, 0x35C bytes) ---- */
+#define c350_record_of_track    C350_FN(0x0C06BD38, u32, (int track))
+#define C350_REC_ID(rec)        C350_U32((rec) + 0x10)   /* rekordbox track id */
+#define C350_REC_BPM_OK(rec)    C350_U32((rec) + 0x18)
+#define C350_REC_BPM100(rec)    C350_U32((rec) + 0x1C)
+#define C350_REC_TITLE(rec)     ((rec) + 0x38)           /* ASCII, NUL-terminated */
+#define C350_REC_ARTIST(rec)    ((rec) + 0x98)
+#define C350_REC_ALBUM(rec)     ((rec) + 0xC8)
+#define c350_track_title        C350_FN(0x0C06C3C4, u32, (int track))
+#define c350_track_artist       C350_FN(0x0C06C3DC, u32, (int track))
+#define c350_track_album        C350_FN(0x0C06C3F8, u32, (int track))
+
+/* ---- INFO view (track view, rotary pages of row 2) ---- */
+#define C350_INFO_PAGE          C350_U8(0x0CD48BE2)  /* 0 artist, 1 album, 2 phase meter */
+#define c350_info_page_scroll   C350_FN(0x0C0D664A, void, (u32 dir, u32 steps))
+#define c350_display_request    C350_FN(0x0C06777A, u32, (int))
+
+/* ---- rekordbox DB server (request 0x2002 track metadata) ---- */
+#define c350_db_track_row       C350_FN(0x0C0719A4, int, (u32 id, u32 row))
+#define C350_DB_ROW_RATING(row) C350_U8((row) + 0x1C)    /* 0..5 */
+#define C350_DB_ROW_KEY(row)    C350_U32((row) + 0x2C)   /* key id */
+#define c350_db_key_name        C350_FN(0x0C07D14C, int, (u32 key, u32 *text))  /* UTF-16 */
 
 /* ---- Play position & audio ring (1 frame = 1/75 s = 588 samples) ---- */
 #define C350_PLAY_SECTOR        C350_U16(0x0C7E4D10)
@@ -73,5 +98,6 @@ typedef signed int s32;
 #define c350_sector_track       C350_FN(0x0C006950, u32, (int sector))
 #define c350_next_sector        C350_FN(0x0C006A92, void, (void))
 #define c350_state4_keys        C350_FN(0x0C0D28AC, void, (void))
+#define c350_beat_grid_frame(i) ((C350_GRID_TIME_MS(i) * 75u + 500u) / 1000u)
 
 #endif /* C350_H */

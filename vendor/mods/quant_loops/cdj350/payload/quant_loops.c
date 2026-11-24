@@ -10,18 +10,56 @@
  * (15.9 h), beats * 6000000 for beats <= 8.
  */
 #include "c350.h"
+#include "c350_ui.h"
 
 #define QL_BPM_CLAMP_STOCK  1800    /* 180.0 BPM clamp */
 #define QL_NONE             (-1)    /* no beat (lead-in before the first beat) */
 #define QL_AWAY             (-2)    /* the window in RAM does not cover the position */
 
-/* Run-time switch. 1 = the mod may snap; 0 = stock. */
+/* Run-time switch. 1 = the mod may snap; 0 = stock. Snapping also needs the
+ * on-deck setting (UTILITY QUANTIZE, saved in the settings record, c350_ui.h). */
 volatile u32 quant_loops_on = 1;
 
 static int ql_on(void)
 {
-    return quant_loops_on != 0;
+    return quant_loops_on != 0 && c350_ui_quantize();
 }
+
+/* UTILITY: QUANTIZE ON/OFF and DRIFT FIX ON/OFF (loop drift correction) after Ver (c350_ui.c owns
+ * the list). Both are on on a fresh deck. */
+static const char *ql_quant_value(void)
+{
+    if (!quant_loops_on)
+        return 0;
+    return c350_ui_quantize() ? "ON" : "OFF";
+}
+
+static void ql_quant_select(void)
+{
+    c350_ui_set_flag(C350_UI_FLAG_QUANT_OFF, c350_ui_quantize());
+}
+
+static const c350_ui_utility_item ql_quant_item = {
+    10u, "QUANTIZE", ql_quant_value, ql_quant_select,
+};
+C350_UI_UTILITY_ITEM(ql_quant_item);
+
+static const char *ql_drift_value(void)
+{
+    if (!quant_loops_on)
+        return 0;
+    return c350_ui_drift() ? "ON" : "OFF";
+}
+
+static void ql_drift_select(void)
+{
+    c350_ui_set_flag(C350_UI_FLAG_DRIFT_OFF, c350_ui_drift());
+}
+
+static const c350_ui_utility_item ql_drift_item = {
+    20u, "DRIFT FIX", ql_drift_value, ql_drift_select,
+};
+C350_UI_UTILITY_ITEM(ql_drift_item);
 
 /* Pending grid out of the auto loop being set (quant_loops_auto_in ->
  * quant_loops_auto_send -> post-send quant_loops_auto_in). */
@@ -509,7 +547,7 @@ void quant_loops_drift_tick(void)
 
     quant_loops_drift_ticks++;
     qd_track();
-    if (!ql_on() || !quant_loops_drift_on || C350_IS_USB_MODE != 1 ||
+    if (!ql_on() || !quant_loops_drift_on || !c350_ui_drift() || C350_IS_USB_MODE != 1 ||
         C350_LOOP_ACTIVE != 1 || C350_PLAYER_STATE != C350_STATE_LOOPING) {
         qd_have = 0;
         return;
