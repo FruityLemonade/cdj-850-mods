@@ -87,6 +87,13 @@ MODS = {
         'hot cues: delete and PCOB count in the ANLZ hot-cue write',
         [0x64A3, 0x65C3, 0xDE63, 0x4E0B, 0x67B3, 0xA001], 2,
         0x0C0C5960, 'hot_cues_anlz_write'),
+    # 0x0C0F5348: mov.b @r6,r5; mov.l @(..),r7; mov.l @(0x0C0F54D8),r2; jsr @r2; mov r13,r6;
+    # add #12,r15 -- the cue prefill request FUN_0C008C8A(4, .., 400, 120, ..) of the audio task.
+    # The pool word is inside the boot-critical closure: players/cdj850.GATED_BOOT_POOLS.
+    'hot_cues_prefill': _redirect(
+        'hot cues: a short ring prefill after a hot-cue CALL (gated, audio task)',
+        [0x6560, 0xD760, 0xD262, 0x420B, 0x66D3, 0x7F0C], 2,
+        0x0C008C8A, 'hot_cues_ring_request'),
     'hot_cues_flash': Mod(
         what='hot cues: HOT CUE ON / OFF on the display after a toggle',
         target='main',

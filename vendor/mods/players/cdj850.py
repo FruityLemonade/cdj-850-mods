@@ -34,7 +34,9 @@ MAIN_PROFILE = ImageProfile(
 # stock callee whenever either SERVICE_GATE byte is nonzero.
 #   0x0C064DDC  panel_tx_saved_cues (0x0C0664A8), read at 0x0C064CF2 in the
 #               DisplayTask display-update routine (waveform_center_marker).
-GATED_BOOT_POOLS = frozenset((0x0C064DDC,))
+#   0x0C0F54D8  FUN_0C008C8A (the ring read request), read only at 0x0C0F534C, the
+#               USB cue prefill of the audio task (hot_cues_prefill).
+GATED_BOOT_POOLS = frozenset((0x0C064DDC, 0x0C0F54D8))
 
 # The DSP56371 program MAIN uploads over SHI as four contiguous big-endian
 # segments (0x0C155B28..0x0C1593A1, 0x3879 bytes). Segments 1-3 are stage
