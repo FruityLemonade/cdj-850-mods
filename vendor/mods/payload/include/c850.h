@@ -45,6 +45,7 @@ typedef void c850_hook_fn(u32 *regs, u32 *sp);
 /* ---- Player, transport, pitch (section 4) ---- */
 #define C850_IS_USB_MODE        C850_U8(0x0CE6D25A)  /* 1 = USB/data mode, 0 = CD */
 #define C850_SOURCE_INDEX       C850_U8(0x0CE6D252)  /* active source (2 = USB) */
+#define C850_USB_MOUNTED        C850_U8(0x0CE6D147)  /* 1 while a USB stick is mounted [emu] */
 #define C850_PLAYER_STATE_BASE  0x0CE6D25D           /* + source index; section 4b states */
 #define C850_PLAYER_STATE       C850_U8(C850_PLAYER_STATE_BASE + C850_SOURCE_INDEX)
 #define C850_STATE_PLAYING      3

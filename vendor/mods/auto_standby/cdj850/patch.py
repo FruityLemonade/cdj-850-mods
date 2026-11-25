@@ -7,6 +7,12 @@ When ON and the idle counter (0x0C1E10AE s, 0x0C1E10B0 ms) reaches the limit
 chosen in UTILITY (STANDBY TIME: 20/40/60/120 MIN, persisted in PIONEER/MODSET.DAT),
 auto_standby_get_mode sets 0x0C1E10AE to 0x383F so the stock comparison against
 table[1] (0x3840 = 4 hours at 0x0C18CCDE) triggers standby on that tick.
+
+The stock idle gate FUN_0C0EF7D6 never counts on the USB source while a stick is
+mounted (0x0CE6D147 = 1), so there auto_standby_get_mode keeps its own idle count
+and makes the stock request (FUN_0C0EFB10(2), FUN_0C0EFABA) at the limit. The
+stock key-activity reset FUN_0C0EFAEC reads the mode through its own pool word
+0x0C0EFB84, redirected to auto_standby_activity, which also clears that count.
 """
 from sigpatch import Anchor, Mod, PoolRedirect
 
@@ -28,6 +34,15 @@ MODS = {
                       index=1, literal=True),
         old=0x0C08F186,
         routine='payload:auto_standby_get_mode',
+    ),
+    'autostandby_activity': PoolRedirect(
+        what='AUTO STANDBY: key activity also restarts the USB (stick mounted) idle count',
+        target='main',
+        fw_versions=('1.13',),
+        anchor=Anchor(sig=[0x4F22, 0xD125, 0x414B, 0x640C, 0x2448, 0x8909, 0xBE6D],
+                      index=1, literal=True),
+        old=0x0C08F186,
+        routine='payload:auto_standby_activity',
     ),
     'autostandby_usb_settings': PoolRedirect(
         what='AUTO STANDBY: read the mod settings file on the stick at mount (shared c850_ui)',
