@@ -5,7 +5,7 @@
 Custom firmware for the Pioneer CDJ-850. Choose a build in the browser and download a ready-to-install update file.
 
 > [!WARNING]
-> Custom firmware can cause playback problems or leave the deck unable to boot. The mods have been tested in the emulator, and most still need verification on a physical deck. Keep the original update for recovery.
+> Custom firmware can cause playback problems or leave the deck unable to boot. Every mod has been tested on a CDJ-850; Hot cues, the zoomed waveform and Loop roll still have minor known issues and are only in the Experimental build. Keep the original update for recovery.
 
 ## How to use it
 
@@ -21,15 +21,17 @@ Your firmware file never leaves your computer. All the patching happens in the b
 
 | Build | What you get |
 |---|---|
-| **Standard** | Every emulator-tested mod. The core mods are always on; the optional ones can be switched on or off on the deck. |
-| **Experimental** | Everything in Standard, plus the features still in development: Hot cues, Zoomed scrolling waveform and Loop roll. |
+| **Standard** | Every mod tested on a CDJ-850 with no known issues. The core mods are always on; the optional ones are switched on or off on the deck. |
+| **Experimental** | Everything in Standard, plus Hot cues, the zoomed scrolling waveform and Loop roll. They are hardware tested too, but still have minor known issues. |
 | **Restore stock** | The unmodified Pioneer v1.13 firmware with a new version number, to roll back over a modded build. |
 
 ### Switching mods on the deck
 
-Optional mods appear in the **UTILITY** menu after **VERSION No.** Hold **MENU/UTILITY**, turn the rotary selector to the item and press it to change the value. Optional mods start **ON**.
+Most optional mods appear in the **UTILITY** menu after **VERSION No.** Hold **MENU/UTILITY**, turn the rotary selector to the item and press it to change the value. Optional mods start **ON**.
 
 The settings are saved to `PIONEER/MODSET.DAT` on the USB stick, so they travel with the stick. A stick without that file uses the deck's own settings until you change one, which creates the file.
+
+Hot cues and Loop roll have no UTILITY item: they are switched with a **BEAT SELECT** combo (see their rows below).
 
 ## Mods
 
@@ -44,7 +46,7 @@ The settings are saved to `PIONEER/MODSET.DAT` on the USB stick, so they travel 
 | **Loop resize** | Halves or doubles a playing loop, following the beat grid when the track has one. | While a loop plays, press **CUE/LOOP CALL ◀** to halve it or **CALL ▶** to double it. Outside a loop the buttons work as normal. |
 | **Auto standby** | Lets you choose a standby timeout of 20, 40, 60 or 120 minutes instead of 4 hours. Also works on USB with a stick mounted (stock firmware never goes to standby there): idle time counts while browsing, paused or cued, and any key, rotary or tempo fader move restarts it. Playing or looping a track keeps the deck awake. | Turn on **AUTO STANDBY** in **UTILITY**, then set **STANDBY TIME** (default 20 MIN). |
 
-### Optional (Standard and Experimental)
+### Switchable (Standard and Experimental)
 
 | Mod | UTILITY item | What it does | How to use it on the deck |
 |---|---|---|---|
@@ -55,13 +57,13 @@ The settings are saved to `PIONEER/MODSET.DAT` on the USB stick, so they travel 
 | **INFO screen order** | **INFO ORDER** | Shows the playing BPM, Camelot key and rekordbox rating under the USB track title, for example `128.23 12A *****` (one asterisk per star). With **MASTER TEMPO** off, the key follows the pitch to the nearest semitone. | Press **INFO** on a USB track. The first page shows the title, the combined row and the waveform. Turn the jog for Artist, Rating and Key, then Album and Comment. |
 | **Browse history &amp; sort** | **BROWSE MODS** | Marks rekordbox USB tracks played for more than 20 seconds with `*` in **BROWSE** (up to 1,024 tracks per stick, cleared when the stick is stopped or removed, or the deck is switched off), and sorts the **TRACK** list by BPM or key. | Tap **MENU** in **BROWSE** to cycle **BPM**, **Key** and **Default**, then open the **TRACK** category. |
 
-### In development (Experimental only)
+### Minor known issues (Experimental only)
 
 | Mod | UTILITY item | What it does | How to use it on the deck |
 |---|---|---|---|
-| **Hot cues** | **HOT CUES** | Turns **BEAT 1**, **2** and **4** into hot cues A, B and C. Reads the hot cues set in rekordbox and saves new ones to the USB stick. Lit beat LEDs mark set slots, blinking ones empty slots. With quantize on, a new cue lands on the nearest beat. | Press **BEAT SELECT + RELOOP** to switch hot-cue mode on or off. Press a pad to jump to its cue, or to set one in an empty slot. Hold **BEAT 8** and press a pad to delete its cue. *Not ready for live use: a jump takes a few seconds while the deck reads about 5 seconds of audio from the stick, the same wait as calling a memory cue.* |
+| **Hot cues** | — | Turns **BEAT 1**, **2** and **4** into hot cues A, B and C. Reads the hot cues set in rekordbox and saves new ones to the USB stick. Lit beat LEDs mark set slots, blinking ones empty slots. With quantize on, a new cue lands on the nearest beat. A jump while playing is instant when the cue is still in the deck's audio buffer (about 13 s behind or 15 s ahead); otherwise the deck loads 2.4 s of audio first instead of the stock 5.3 s. | Press **BEAT SELECT + RELOOP** to switch hot-cue mode on or off (the display shows HOT CUE ON/OFF; the setting is kept). Press a pad to jump to its cue, or to set one in an empty slot. Hold **BEAT 8** and press a pad to delete its cue. |
 | **Zoomed scrolling waveform** | **WAVEFORM**, **WAVE PLAYHEAD** | Replaces the **INFO** page 1 waveform strip with a live zoomed scrolling waveform. Works on rekordbox USB, other USB and Audio CD tracks. While zoomed in, the red cue strip marks the playhead and any active loop. | On **INFO** page 1, turn the rotary selector counter-clockwise to zoom out: close (4 s), medium (16 s), whole track. Turn clockwise to zoom back in. **WAVE PLAYHEAD** places the playhead at **LEFT 1/3** (default), **CENTER** or **LEFT**. |
-| **Loop roll** | — | Prototype slip loop: while a beat button is held the auto beat loop plays, and on release playback lands where the track would have been without the loop. With quantize on, the roll plays on to the next quantize point and lands there. With Quantized loops, short rolls (1/8, 1/16 beat) are even. Works on USB tracks within the buffered audio. | Press **BEAT SELECT + LOOP OUT** to switch roll mode on or off (ROLL ON/OFF, off again after power-on). Hold **BEAT 1**, **2**, **4** or **8** while playing. |
+| **Loop roll** | — | Slip loop: while a beat button is held the auto beat loop plays, and on release playback lands where the track would have been without the loop. With quantize on, the roll plays on to the next quantize point and lands there. With Quantized loops, short rolls (1/8, 1/16 beat) are even. Works on USB tracks within the buffered audio. | Press **BEAT SELECT + LOOP OUT** to switch roll mode on or off (ROLL ON/OFF, off again after power-on). Hold **BEAT 1**, **2**, **4** or **8** while playing. |
 
 ## Going back to stock firmware
 
@@ -87,7 +89,7 @@ python3 -m http.server 8000 --directory dist
 
 Open `http://localhost:8000/`. The build compiles the mod payloads for each build using the existing compiler driver. It needs no firmware file. GitHub Pages serves the static build from the `gh-pages` branch.
 
-The tools and patch definitions in `vendor/` are copies from the [CDJ-850 emulator project](https://github.com/FruityLemonade/cdj-850-emulator); `vendor/UPSTREAM` names the emulator commit. The [pages workflow](.github/workflows/pages.yml) checks the emulator's `main` branch every hour, commits any change to `vendor/`, rebuilds the payloads and publishes the site, so the patcher always ships the newest mods. A new CDJ-850 mod in the emulator shows up as a workflow warning until it is added to one of the build lists (`ALWAYS_ON`, `TESTED_TOGGLEABLE` or `DEV_TOGGLEABLE`) in `patcher.py`, the browser adapter. See [LICENSE](LICENSE).
+The tools and patch definitions in `vendor/` are copies from the [CDJ-850 emulator project](https://github.com/FruityLemonade/cdj-850-emulator); `vendor/UPSTREAM` names the emulator commit. The [pages workflow](.github/workflows/pages.yml) checks the emulator's `main` branch every hour, commits any change to `vendor/`, rebuilds the payloads and publishes the site, so the patcher always ships the newest mods. A new CDJ-850 mod in the emulator shows up as a workflow warning until it is added to one of the build lists (`ALWAYS_ON`, `SWITCHABLE` or `KNOWN_ISSUES`) in `patcher.py`, the browser adapter. See [LICENSE](LICENSE).
 
 ### Enabling the repack counter
 
