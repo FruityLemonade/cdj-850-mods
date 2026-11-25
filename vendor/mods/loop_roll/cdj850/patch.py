@@ -68,4 +68,20 @@ MODS = {
         routine='payload:c850_ui_flash_hook',
         **BPM_SITE,
     ),
+    'loop_roll_jog': _redirect(
+        'slip mode: flash jogwheel VINYL indicator while slip mode is active',
+        [0xB3F9, 0x0009, 0xD350, 0x434B, 0xD350, 0x434B, 0xD350, 0x434B, 0xD350, 0x434B, 0xD350, 0x434B], 6,
+        0x0C064D10, 'loop_roll_jog_flags'),
+    'loop_roll_utility_scroll': _redirect(
+        'slip mode: UTILITY list continues after VERSION No. (shared c850_ui items)',
+        [0x35F1, 0x4020, 0xD26D, 0x424B, 0xD56D, 0xB6CC, 0x6450], 2,
+        0x0C0E4DF6, 'c850_ui_utility_scroll'),
+    'loop_roll_utility_select': _redirect(
+        'slip mode: SLIP MODE ON/OFF in UTILITY (shared c850_ui items)',
+        [0x3551, 0x8000, 0xD22A, 0x420B, 0xE403, 0xA1CF, 0x0009], 2,
+        0x0C0E4C14, 'c850_ui_utility_select'),
+    'loop_roll_usb_settings': _redirect(
+        'slip mode: read the mod settings file on the stick at mount (shared c850_ui)',
+        [0x1D01, 0xD575, 0xD775, 0x470B, 0x64D3, 0x2008, 0x8903], 2,
+        0x0C0C45B4, 'c850_ui_usb_mount'),
 }

@@ -177,8 +177,10 @@ static inline s32 c850_effective_pitch(void)
 
 /* ---- Forward loop-out test of the IRQ7 feeder (payload/common/c850_loop_out.c) ----
  * Pool 0x0C07730C -> c850_loop_out_isr: loop_roll_out_hook, quant_loops_out_hook,
- * then isr_loop_out_reached (0x0C0158D4). Interrupt context. */
+ * then isr_loop_out_reached (0x0C0158D4). Interrupt context.
+ * Pool 0x0C0E62BC -> c850_resize_req: smooth CDJ-2000NXS2/3000 loop resize. */
 int c850_loop_out_isr(int sector, u32 out, int z);
+int c850_resize_req(u32 frame, int z);
 u32 c850_read_pos(void);               /* block the read pointer names (frame * 7 + block) */
 int c850_ring_jump(u32 pos_block);     /* 1 = read pointer moved there (in the ring) */
 

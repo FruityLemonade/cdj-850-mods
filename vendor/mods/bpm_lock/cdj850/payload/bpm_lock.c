@@ -155,7 +155,7 @@ void bpm_lock_tick(void)
         if (C850_BPMLOCK_EDIT == 1) {
             bl_last_master = C850_BPMLOCK_MASTER;
             bl_fmt_master(bl_last_master);
-            c850_ui_flash(bl_flash_buf);
+            c850_ui_flash_hold(bl_flash_buf);
         }
     }
 
@@ -193,14 +193,17 @@ void bpm_lock_tick(void)
     if (C850_BPMLOCK_ACTIVE == 1)
         bl_apply_wide_if_needed();
 
-    /* Live flash while rotating Master BPM in edit mode. */
+    /* Live dialogue while in Master BPM edit mode: stay open until BPM is selected. */
     if (C850_BPMLOCK_EDIT == 1) {
         u32 m = C850_BPMLOCK_MASTER;
+        C850_BPMLOCK_TIMER = 10000u;
         if (!bl_was_edit || m != bl_last_master) {
             bl_last_master = m;
             bl_fmt_master(m);
-            c850_ui_flash(bl_flash_buf);
+            c850_ui_flash_hold(bl_flash_buf);
         }
+    } else if (bl_was_edit) {
+        c850_ui_flash_clear();
     }
     bl_was_edit = C850_BPMLOCK_EDIT;
 }
@@ -239,7 +242,7 @@ u32 bpm_lock_notify(u32 code, s32 dur)
         return c;
     case 0x0F:
         bl_fmt_master(C850_BPMLOCK_MASTER);
-        c850_ui_flash(bl_flash_buf);
+        c850_ui_flash_clear();
         return c;
     default:
         return BL_NOTIFY_STOCK(code, dur);

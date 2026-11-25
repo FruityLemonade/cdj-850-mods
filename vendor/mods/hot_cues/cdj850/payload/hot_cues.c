@@ -147,13 +147,31 @@ int hot_cues_mode(void)
 {
     if (!hot_cues_on)
         return 0;
-    return c850_ui_flag(C850_UI_FLAG_HOT_CUES);
+    return c850_ui_hot_cues_active();
 }
 
-/* No UTILITY item: hot-cue mode is BEAT SELECT + RELOOP (the old HOT CUES
- * ON/OFF flag, C850_UI_FLAG_HOT_CUES_OFF, is ignored). */
+static const char *hc_utility_value(void)
+{
+    if (!hot_cues_on)
+        return 0;
+    return c850_ui_flag(C850_UI_FLAG_HOT_CUES_OFF) ? "OFF" : "ON";
+}
 
-#define HC_PLAY_TRIES 8
+static void hc_utility_select(void)
+{
+    int off = !c850_ui_flag(C850_UI_FLAG_HOT_CUES_OFF);
+
+    c850_ui_set_flag(C850_UI_FLAG_HOT_CUES_OFF, off);
+    if (off)
+        c850_ui_set_hot_cues_armed(0);
+}
+
+static const c850_ui_utility_item hc_utility_item = {
+    75u, "HOT CUES", hc_utility_value, hc_utility_select,
+};
+C850_UI_UTILITY_ITEM(hc_utility_item);
+
+#define HC_PLAY_TRIES 16
 #define HC_PLAY_GAP   10
 
 static u32 hc_key(void)
@@ -228,14 +246,13 @@ static int hc_state_ok(u32 st)
 
 static void hc_toggle_mode(void)
 {
-    int on = !hot_cues_mode();
+    int on;
 
-    if (c850_ui_set_flag(C850_UI_FLAG_HOT_CUES, on)) {
-        hot_cues_toggles++;
-    } else {                          /* a 31-character name holds the byte */
-        hot_cues_failed++;
-        on = !on;
-    }
+    if (c850_ui_flag(C850_UI_FLAG_HOT_CUES_OFF))
+        return;
+    on = !c850_ui_hot_cues_armed();
+    c850_ui_set_hot_cues_armed(on);
+    hot_cues_toggles++;
     c850_ui_flash(on ? "HOT CUE ON" : "HOT CUE OFF");
 }
 
@@ -246,7 +263,7 @@ static void hot_cues_key_filter(const u16 *k, const u16 *p, u16 *own)
     u16 p1 = p[1];
     int i;
 
-    if (!hot_cues_on)
+    if (!hot_cues_on || c850_ui_flag(C850_UI_FLAG_HOT_CUES_OFF))
         return;
     if (c850_ui_shift(k, p, own, C850_K0_RELOOP)) {
         hc_toggle_mode();
@@ -496,15 +513,23 @@ static void hc_jump(u32 n, u32 rec, u32 st)
         hot_cues_failed++;
         return;
     }
-    if (st == C850_STATE_PLAYING && C850_PLAYER_STATE == C850_STATE_PLAYING && !(hc_entry[0] & 1u)) {
+    if (!(hc_entry[0] & 1u) &&
+        (st == C850_STATE_PLAYING || st == C850_STATE_PAUSED_CDJ || st == C850_STATE_CUED) &&
+        C850_PLAYER_STATE == st) {
         if (hc_jump_in_ring(hc_entry[3])) {
             hot_cues_jumps++;
             hot_cues_last_slot = n;
             hot_cues_last_in = hc_entry[3];
             hot_cues_last_out = 0;
+            if (st != C850_STATE_PLAYING) {
+                C850_PLAY_FRAME = hc_entry[3];
+                hc_play = HC_PLAY_TRIES;
+                hc_play_wait = 1;
+            }
             return;
         }
-        hot_cues_instant_misses++;
+        if (st == C850_STATE_PLAYING)
+            hot_cues_instant_misses++;
     }
     hc_prefill_arm();
     hc_sel = 1;
@@ -518,10 +543,9 @@ static void hc_jump(u32 n, u32 rec, u32 st)
     hot_cues_last_slot = n;
     hot_cues_last_in = hc_entry[3];
     hot_cues_last_out = (hc_entry[0] & 1u) ? hc_entry[4] : 0;
-    if ((st == C850_STATE_PLAYING || st == C850_STATE_LOOPING) && C850_PLAYER_STATE == C850_STATE_CUED) {
-        hc_play = HC_PLAY_TRIES;
-        hc_play_wait = 1;
-    }
+    /* Wait in hot_cues_tick until c850_cue_call_prev_next's seek settles, then auto-play. */
+    hc_play = HC_PLAY_TRIES;
+    hc_play_wait = 1;
 }
 
 /* Write hot cue n (rec) through the stock ANLZ hot-cue setter. */
@@ -682,9 +706,12 @@ void hot_cues_tick(void)
             C850_K0 &= ~C850_K0_PLAY;
         hc_play_wait = HC_PLAY_GAP;
     } else if (hc_play) {
-        if (C850_PLAYER_STATE != C850_STATE_CUED || (c850_ui_kt[0] & C850_K0_PLAY)) {
-            hc_play = 0;              /* playing (or the DJ took over) */
-        } else if (hc_play_wait == 0 || --hc_play_wait == 0) {
+        u32 st = C850_PLAYER_STATE;
+        if (st == C850_STATE_PLAYING || st == C850_STATE_LOOPING) {
+            hc_play = 0;              /* playing */
+        } else if ((st == C850_STATE_CUED || st == C850_STATE_PAUSED_CDJ) &&
+                   !(c850_ui_kt[0] & C850_K0_PLAY) &&
+                   (hc_play_wait == 0 || --hc_play_wait == 0)) {
             C850_K0 |= C850_K0_PLAY;
             hc_play_down = 1;
             hc_play--;
@@ -754,7 +781,7 @@ int hot_cues_wait(int flg, u32 ptn, int mode, u32 *out, int tmo)
         hot_cues_mask = m;
         hc_sv_beats = C850_AUTO_LOOP_BEATS;
         hc_sv_d154 = C850_BEAT_FRACTION_MODE;
-        hc_fk_beats = (u8)(~m & 7u);
+        hc_fk_beats = (u8)((~m & 7u) | 8u);
         C850_AUTO_LOOP_BEATS = hc_fk_beats;
         C850_BEAT_FRACTION_MODE = 0;
         hc_fk = 1;

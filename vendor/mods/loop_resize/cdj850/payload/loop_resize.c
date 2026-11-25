@@ -306,10 +306,9 @@ u32 loop_resize_new_out(u32 in, u32 out, u32 tracklen, u32 dir, u32 *q, u32 *mod
  * lr_track() follows both words from the CALL, state-4 and MEMORY entries.
  */
 static u32 lr_dc_seen, lr_b0_seen, lr_fresh;
-static u32 lr_pending, lr_pend_in, lr_pend_out, lr_pend_old, lr_pend_q;
 
 volatile u32 loop_resize_ticks;       /* state-4 handler calls seen */
-volatile u32 loop_resize_deferred;    /* halvings left for the next loop pass */
+volatile u32 loop_resize_deferred;    /* kept at 0 (resizes execute immediately) */
 volatile u32 loop_resize_memory;      /* MEMORY presses given the effective out */
 
 static void lr_track(void)
@@ -317,8 +316,6 @@ static void lr_track(void)
     u32 dc = C850_LOOP_OUT_REQUEST, b0 = C850_LOOP_OUT_FRAME;
     int dch = dc != lr_dc_seen, bch = b0 != lr_b0_seen;
 
-    if (dch)
-        lr_pending = 0;               /* someone else resized meanwhile */
     if (bch)
         lr_fresh = 0;                 /* a new loop (or EXIT/RELOOP applied the request) */
     else if (dch)
@@ -388,17 +385,6 @@ static int lr_resize(u32 in, u32 old, u32 nout, u32 q)
     return 1;
 }
 
-/* A new out behind the playhead would close the loop at once (the feeder
- * jumps to in: phase lost). A halving is sent only while the playhead is in
- * the first half of the new loop; otherwise it waits for the next pass (the
- * old length is a multiple of the new one, so the loop stays in phase). */
-static int lr_in_first_half(u32 in, u32 nout)
-{
-    u32 pos = C850_PLAY_FRAME;
-
-    return pos >= in && pos - in < (nout - in + 1u) / 2u;
-}
-
 /* Pool 0x0C0D9994 (cue_call_prev_next): CALL < (0) / CALL > (1). */
 void loop_resize_call(int next)
 {
@@ -412,25 +398,11 @@ void loop_resize_call(int next)
     }
     lr_track();
     in = C850_LOOP_IN_FRAME;
-    if (lr_pending && lr_pend_in != in)
-        lr_pending = 0;
-    old = lr_pending ? lr_pend_out : loop_resize_effective_out(in);
+    old = loop_resize_effective_out(in);
     nout = loop_resize_new_out(in, old, C850_TRACK_LENGTH, (u32)(next & 0xFF) ? 1u : 0u, &q, &mode);
     loop_resize_last_mode = mode;
     if (nout == 0) {
         loop_resize_ignored++;
-        return;
-    }
-    lr_pending = 0;
-    if (nout < loop_resize_effective_out(in) && !lr_in_first_half(in, nout)) {
-        lr_pending = 1;
-        lr_pend_in = in;
-        lr_pend_out = nout;
-        lr_pend_old = old;
-        lr_pend_q = q;
-        loop_resize_deferred++;
-        loop_resize_last_new = nout;
-        loop_resize_last_q = q;
         return;
     }
     if (!lr_resize(in, old, nout, q))
@@ -439,21 +411,11 @@ void loop_resize_call(int next)
 
 /* Hook of the shared state-4 tick c850_loop_tick (pool 0x0C0D7B98,
  * keys_state4_looping 0x0C0E0F34, c850.h): runs once per player cycle in
- * state 4, before the stock handler. Sends a deferred halving once the loop
- * has wrapped. */
+ * state 4, before the stock handler. */
 void loop_resize_state4(void)
 {
     loop_resize_ticks++;
     lr_track();
-    if (lr_pending) {
-        u32 in = C850_LOOP_IN_FRAME;
-        if (C850_LOOP_ACTIVE != 1 || C850_PLAYER_STATE != C850_STATE_LOOPING || in != lr_pend_in) {
-            lr_pending = 0;
-        } else if (lr_in_first_half(in, lr_pend_out)) {
-            lr_pending = 0;
-            lr_resize(in, lr_pend_old, lr_pend_out, lr_pend_q);
-        }
-    }
 }
 
 

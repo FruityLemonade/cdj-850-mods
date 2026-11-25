@@ -31,7 +31,7 @@ boot-critical closure (mods/bootcrit.py; tests/test_cdj850_loop_resize.py).
 """
 from sigpatch import Anchor, PoolRedirect
 
-PAYLOAD_COMMON = ('c850_ui',)
+PAYLOAD_COMMON = ('c850_ui', 'c850_loop_out')
 
 
 def _redirect(what, sig, index, old, routine):
@@ -63,4 +63,8 @@ MODS = {
         'loop resize: MEMORY stores the resized loop',
         [0x0B39, 0xD62B, 0xD22B, 0x420B, 0x26B2, 0xA268], 2,
         0x0C0D4172, 'loop_resize_memory_button'),
+    'loop_resize_req': _redirect(
+        'loop resize: smooth CDJ-2000NXS2/3000 resize without resetting to loop_in when play < out',
+        [0xE603, 0xE500, 0x2160, 0xD6A2, 0xD2A3, 0x420B, 0x6462, 0x600C], 4,
+        0x0C00A4CC, 'c850_resize_req'),
 }
