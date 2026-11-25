@@ -51,9 +51,9 @@ docs/cdj850-modding.md has the trace.
   (utility_scroll_item, read at 0x0C0E77C4) and 0x0C0E7F10
   (utility_set_menu_level, read at 0x0C0E7E64): the shared UTILITY list
   c850_ui_utility_scroll / _select (waveform redirects the same words to the
-  same routines). Item QUANTIZE DRIFT after VERSION No. switches the drift
-  correction ON/OFF (saved, c850_ui.h); its rows are drawn by
-  c850_ui_flash_hook.
+  same routines). Item QUANTIZE after VERSION No. picks the quantize value
+  1, 1/2 or 1/4 beat (saved, c850_ui.h; shown while quantize is on); its rows
+  are drawn by c850_ui_flash_hook.
 * quant_loops_usb_settings: pool 0x0C0C11E8 (FUN_0C0C45B4, the USB ANLZ
   manager set-up of a newly mounted stick), read only at 0x0C0C1010 in
   FUN_0C0C0F88: the shared c850_ui_usb_mount, which calls it and then reads
@@ -154,7 +154,7 @@ MODS = {
         [0x35F1, 0x4020, 0xD26D, 0x424B, 0xD56D, 0xB6CC, 0x6450], 2,
         0x0C0E4DF6, 'c850_ui_utility_scroll'),
     'quant_loops_utility_select': _redirect(
-        'quant loops: QUANTIZE DRIFT ON/OFF in UTILITY (shared c850_ui items)',
+        'quant loops: QUANTIZE value (1, 1/2, 1/4 beat) in UTILITY (shared c850_ui items)',
         [0x3551, 0x8000, 0xD22A, 0x420B, 0xE403, 0xA1CF, 0x0009], 2,
         0x0C0E4C14, 'c850_ui_utility_select'),
     # 0x0C0C100C: mov.l r0,@(4,r13); mov.l @(0x0C0C11E4),r5; mov.l @(0x0C0C11E8),r7; jsr @r7;
