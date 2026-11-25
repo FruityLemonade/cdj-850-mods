@@ -33,9 +33,21 @@
  *                       inputs faked while playertask sleeps.
  *   hot_cues_anlz_write 0x0C0C195C (FUN_0C0C5960) in the hot-cue setter FUN_0C0C166C:
  *                       empties a slot for a delete, fixes the tag's cue count.
+ *   hot_cues_ring_request      0x0C0F54D8 (FUN_0C008C8A), the audio task's cue
+ *                       prefill (gated): restores a cached cue, else a short prefill.
+ *   hot_cues_play_ring_request 0x0C0F73A8 (FUN_0C008C8A) in player_tick_usb_playback:
+ *                       holds the read-ahead while the restore's continuation reads.
+ *   hot_cues_play_tick  0x0C014E8C (FUN_0C0F65F0, AudioTask audio state 3, gated) and
+ *   hot_cues_usb_tick   0x0C014E90 (player_tick_usb_playback, states 4/5, gated):
+ *                       schedule / abort a background cue pre-cache decode.
+ *   hot_cues_beba0      0x0C0BE0CC (FUN_0C0BEBA0, mp3ActTask decode dispatch, gated),
+ *   hot_cues_pcm_init   0x0C0BF818 (pcm_ring_set_sector) and
+ *   hot_cues_pcm_write  0x0C0C056C (pcm_ring_write) in the decoder: run a tagged
+ *                       job's decode into the SDRAM cue cache instead of the ring.
  *
  * Integer only (no FPU here; the MAIN routines called use the FPU as they do
- * for stock). Everything runs on playertask.
+ * for stock). Key handling runs on playertask; the cache restore and the
+ * pre-cache scheduler on AudioTask, the diverted decode on mp3ActTask.
  */
 #include "c850.h"
 #include "c850_ui.h"
@@ -114,6 +126,189 @@ static u8 hc_fixlen;                 /* 1: a hot_cues write; fix the PCOB count 
 static u32 hc_entry[9];              /* 0x24-byte cue list entry */
 static u32 hc_rec[8];                /* 0x20-byte cue record (FUN_0C0C12B2 / FUN_0C0C1442) */
 static u32 hc_buf[0x60];             /* FUN_0C0C12B2 output: count + 10 records */
+
+/* ---- Hot-cue PCM snapshot cache in unused high SDRAM ----
+ *
+ * payload.ld emits .bss as zeroes into the loadable binary, so the ~1.02 MB
+ * snapshot buffer cannot live in .bss. Three 150-sector (2.0 s) forward slots
+ * sit at HC_CACHE_BASE..HC_CACHE_END just below 0x0DF6FFFC, leaving >35 KB clear
+ * above __payload_end even when all CDJ-850 payload mods (including flac) are
+ * built together. Each slot stores 150 x 2352 B PCM followed by 150 x 16 B
+ * ring metadata.
+ */
+extern u8 _payload_end[];
+
+#define HC_CACHE_SLOTS       3u
+#define HC_CACHE_SECTORS     150u    /* 2.0 s forward snapshot per slot */
+#define HC_CACHE_MIN_SECTORS 26u     /* >25 ensures 120 + N > 145 in audio case 0x73 */
+#define HC_SECTOR_LONGWORDS  588u    /* 2352 B / 4 */
+#define HC_META_BYTES        16u
+#define HC_META_BASE         0x0C750C3Cu
+#define HC_SLOT_PCM_BYTES    (HC_CACHE_SECTORS * C850_PCM_SECTOR_BYTES) /* 352,800 B = 0x56220 */
+#define HC_SLOT_META_BYTES   (HC_CACHE_SECTORS * HC_META_BYTES)         /*   2,400 B = 0x00960 */
+#define HC_SLOT_STRIDE       (HC_SLOT_PCM_BYTES + HC_SLOT_META_BYTES)  /* 355,200 B = 0x56B80 */
+#define HC_CACHE_END         0x0DF6FFF0u
+#define HC_CACHE_BASE        (HC_CACHE_END - HC_CACHE_SLOTS * HC_SLOT_STRIDE) /* 0x0DE6BD70 */
+
+#define HC_CACHE_EMPTY       0u
+#define HC_CACHE_PENDING     1u
+#define HC_CACHE_PRECACHE    2u
+#define HC_CACHE_READY       3u
+
+#define HC_MEMCPY            C850_FN(0x0C1100B8, void *, (u32 dst, u32 src, u32 len))
+#define HC_FRAMES_TO_MSF     C850_FN(0x0C003E56, void, (u32 frame, u32 msf_ptr))
+
+typedef struct {
+    u32 h1;
+    u32 h2;
+    u32 cue_frame;
+    u32 out_frame;
+    u16 sectors;
+    u8  state;
+    u8  is_loop;
+} hc_cache_slot_t;
+
+volatile u32 hot_cues_precache = 1;  /* 0 = disable snapshot capture/restore/precache */
+volatile u32 hot_cues_cache_hits;    /* jumps restored directly from SDRAM cache */
+volatile u32 hot_cues_cache_captures;/* cache slots populated */
+volatile u32 hot_cues_precaches;     /* background pre-cache decodes completed */
+volatile u32 hot_cues_precache_aborts; /* background pre-caches preempted/aborted */
+volatile u32 hot_cues_cache_mask;    /* bit n-1 = cache slot n is READY */
+volatile u32 hot_cues_cache_last_sectors;
+
+static hc_cache_slot_t hc_cache[HC_CACHE_SLOTS];
+static volatile u8 hc_restore_slot;  /* 1..3 armed for audio task case 0x77 */
+static volatile u32 hc_restore_frame;
+static volatile u32 hc_restore_since;
+static volatile u8 hc_stream_inflight; /* 1 while case 0x77 continuation read is running */
+static volatile u32 hc_stream_since;
+static volatile u8 hc_bg_inflight;   /* 1 while AudioTask dispatched a bg decode */
+static volatile u8 hc_bg_cancel;     /* 1 to abort/discard in-flight bg decode */
+static volatile u8 hc_bg_divert;     /* 1 inside FUN_0c0beba0 for diverted bg decode */
+static volatile u8 hc_bg_slot;       /* 1..3 */
+static volatile u16 hc_bg_want;
+static volatile u16 hc_bg_sectors;
+static volatile u32 hc_bg_frame;
+static volatile u32 hc_bg_h1;
+static volatile u32 hc_bg_h2;
+static volatile u32 hc_bg_since;
+static volatile u32 hc_bg_longwords;
+
+static u32 hc_cache_pcm(u32 slot)
+{
+    return HC_CACHE_BASE + slot * HC_SLOT_STRIDE;
+}
+
+static u32 hc_cache_meta(u32 slot)
+{
+    return HC_CACHE_BASE + slot * HC_SLOT_STRIDE + HC_SLOT_PCM_BYTES;
+}
+
+static u32 hc_find(u32 n);
+
+static int hc_cache_budget_ok(void)
+{
+    return ((u32)_payload_end <= HC_CACHE_BASE);
+}
+
+static void hc_cache_update_mask(void)
+{
+    u32 i, m = 0;
+
+    for (i = 0; i < HC_CACHE_SLOTS; i++)
+        if (hc_cache[i].state == HC_CACHE_READY)
+            m |= 1u << i;
+    hot_cues_cache_mask = m;
+}
+
+static void hc_bg_abort(void)
+{
+    if (hc_bg_inflight) {
+        hc_bg_cancel = 1u;
+        C850_U8(0x0CE5A9ECu) = 2u;
+        C850_U8(0x0C7F670Eu) = 1u;
+    }
+}
+
+static void hc_cache_invalidate_all(void)
+{
+    u32 i;
+
+    hc_bg_abort();
+    hc_restore_slot = 0;
+    hc_stream_inflight = 0;
+    for (i = 0; i < HC_CACHE_SLOTS; i++) {
+        hc_cache[i].state = HC_CACHE_EMPTY;
+        hc_cache[i].sectors = 0;
+        hc_cache[i].h1 = 0;
+        hc_cache[i].h2 = 0;
+        hc_cache[i].cue_frame = 0;
+        hc_cache[i].out_frame = 0;
+        hc_cache[i].is_loop = 0;
+    }
+    hc_cache_update_mask();
+}
+
+static void hc_cache_set_slot(u32 slot, u32 cue_frame, u32 out_frame, u8 is_loop)
+{
+    hc_cache_slot_t *s;
+
+    if (slot >= HC_CACHE_SLOTS)
+        return;
+    s = &hc_cache[slot];
+    if (s->state == HC_CACHE_READY && s->h1 == hc_h1 && s->h2 == hc_h2 &&
+        s->cue_frame == cue_frame && s->out_frame == out_frame && s->is_loop == is_loop)
+        return;
+    s->h1 = hc_h1;
+    s->h2 = hc_h2;
+    s->cue_frame = cue_frame;
+    s->out_frame = out_frame;
+    s->is_loop = is_loop;
+    s->sectors = 0;
+    s->state = HC_CACHE_PENDING;
+    hc_cache_update_mask();
+}
+
+static void hc_cache_clear_slot(u32 slot)
+{
+    if (slot >= HC_CACHE_SLOTS)
+        return;
+    if (hc_bg_inflight && hc_bg_slot == slot + 1u)
+        hc_bg_abort();
+    if (hc_restore_slot == slot + 1u)
+        hc_restore_slot = 0;
+    hc_cache[slot].state = HC_CACHE_EMPTY;
+    hc_cache[slot].sectors = 0;
+    hc_cache_update_mask();
+}
+
+static int hc_cache_match(u32 slot, u32 cue_frame)
+{
+    const hc_cache_slot_t *s;
+
+    if (slot >= HC_CACHE_SLOTS)
+        return 0;
+    s = &hc_cache[slot];
+    return (s->state == HC_CACHE_READY && s->h1 == hc_h1 && s->h2 == hc_h2 &&
+            s->cue_frame == cue_frame && s->sectors > 0u);
+}
+
+static void hc_cache_sync_from_buf(void)
+{
+    u32 n, rec;
+
+    for (n = 1u; n <= HC_CACHE_SLOTS; n++) {
+        rec = hc_find(n);
+        if (!rec) {
+            hc_cache_clear_slot(n - 1u);
+            continue;
+        }
+        if (HC_REC_TO_ENTRY(rec, hc_entry) == 1) {
+            u8 loop = (hc_entry[0] & 1u) ? 1u : 0u;
+            hc_cache_set_slot(n - 1u, hc_entry[3], loop ? hc_entry[4] : 0u, loop);
+        }
+    }
+}
 
 /* The loop out in effect (docs 4b.10, as loop_resize follows it): a resize
  * (BEAT in a loop, loop_resize's CALL) writes the requested out 0x0C7F64DC and
@@ -455,18 +650,117 @@ static int hc_jump_in_ring(u32 f)
     return 1;
 }
 
-/* ---- short prefill: pool 0x0C0F54D8 (FUN_0C008C8A), the cue prefill request ----
+static void hc_copy_ring_to_slot(u32 slot, u32 start_sec, u32 n)
+{
+    u32 first = C850_PCM_RING_SLOTS - start_sec;
+    u32 dst_pcm = hc_cache_pcm(slot);
+    u32 dst_meta = hc_cache_meta(slot);
+
+    if (first > n)
+        first = n;
+    HC_MEMCPY(dst_pcm, C850_PCM_RING_BASE + start_sec * C850_PCM_SECTOR_BYTES,
+              first * C850_PCM_SECTOR_BYTES);
+    HC_MEMCPY(dst_meta, HC_META_BASE + start_sec * HC_META_BYTES, first * HC_META_BYTES);
+    if (n > first) {
+        u32 rest = n - first;
+        HC_MEMCPY(dst_pcm + first * C850_PCM_SECTOR_BYTES, C850_PCM_RING_BASE,
+                  rest * C850_PCM_SECTOR_BYTES);
+        HC_MEMCPY(dst_meta + first * HC_META_BYTES, HC_META_BASE, rest * HC_META_BYTES);
+    }
+}
+
+static int hc_ring_find_span(u32 f, u32 want, u32 *out_slot)
+{
+    u32 cur = (u32)(u16)HC_PLAY_SECTOR;
+    u32 write_s = (u32)(u16)HC_WRITE_SECTOR;
+    u32 behind_s = (u32)(u16)HC_BEHIND_START;
+    u32 ahead, behind, fcur, start_s, k;
+
+    if (cur >= C850_PCM_RING_SLOTS || write_s >= C850_PCM_RING_SLOTS ||
+        behind_s >= C850_PCM_RING_SLOTS || want == 0u || want > HC_CACHE_SECTORS)
+        return 0;
+    ahead = hc_ring((s32)write_s - (s32)cur);
+    behind = hc_ring((s32)cur - (s32)behind_s);
+    if (ahead + behind < want)
+        return 0;
+    fcur = c850_ring_sector_to_frame((int)cur);
+    if (fcur == 0xFFFFFFFFu)
+        return 0;
+    if (f >= fcur) {
+        u32 d = f - fcur;
+        if (d + want > ahead)
+            return 0;
+        start_s = hc_ring((s32)(cur + d));
+    } else {
+        u32 d = fcur - f;
+        if (d > behind || d + ahead < want)
+            return 0;
+        start_s = hc_ring((s32)cur - (s32)d);
+    }
+    for (k = 0;; k += HC_CHECK_STEP) {
+        if (k >= want)
+            k = want - 1u;
+        if (c850_ring_sector_to_frame((int)hc_ring((s32)(start_s + k))) != f + k)
+            return 0;
+        if (k == want - 1u)
+            break;
+    }
+    *out_slot = start_s;
+    return 1;
+}
+
+__attribute__((noinline))
+static void hc_cache_poll_capture(void)
+{
+    u32 i, track_len, st = C850_PLAYER_STATE;
+
+    if (!hot_cues_precache || !hot_cues_on || !hot_cues_avail || C850_IS_USB_MODE != 1)
+        return;
+    if (!hc_cache_budget_ok())
+        return;
+    track_len = C850_TRACK_LENGTH;
+    if (track_len == 0u || C850_AUDIO_STATE == 0u)
+        return;
+    if (st != C850_STATE_PLAYING && st != C850_STATE_LOOPING &&
+        st != C850_STATE_PAUSED_CDJ && st != C850_STATE_CUED)
+        return;
+    for (i = 0; i < HC_CACHE_SLOTS; i++) {
+        hc_cache_slot_t *s = &hc_cache[i];
+        u32 want, start_s;
+
+        if (s->state != HC_CACHE_PENDING || s->h1 != hc_h1 || s->h2 != hc_h2)
+            continue;
+        if (s->cue_frame >= track_len)
+            continue;
+        want = track_len - s->cue_frame;
+        if (want > HC_CACHE_SECTORS)
+            want = HC_CACHE_SECTORS;
+        if (want <= 25u && s->cue_frame + want < track_len)
+            continue;
+        if (hc_ring_find_span(s->cue_frame, want, &start_s)) {
+            hc_copy_ring_to_slot(i, start_s, want);
+            s->sectors = (u16)want;
+            s->state = HC_CACHE_READY;
+            hot_cues_cache_captures++;
+            hc_cache_update_mask();
+        }
+    }
+}
+
+/* ---- short prefill & instant cache restore: pools 0x0C0F54D8 & 0x0C0F73A8 ----
  *
  * A USB CALL restarts the ring; the audio task then asks the reader for 400
  * sectors (5.33 s) from slot 120 (0x0C0F533A..0x0C0F534E) and takes PLAY only
  * once they are in. The pool word that call reads (once, at 0x0C0F534C) lies in
  * the boot-critical closure; it is redirected through the service-mode gate
  * (GATED_BOOT_POOLS), so in an update mode the stock request runs untouched.
- * For a hot-cue CALL (armed by hc_jump for HC_PREFILL_ARM_MS) the count is
- * hot_cues_prefill (at least HC_PREFILL_MIN); the reader's end slot, done flag
- * and timeout follow from the count FUN_0C008C8A is given, the stock kind-5
- * read of the 120 sectors before the cue and the ready report follow as after
- * 400, and the stock streaming then refills ahead. Runs on the audio task. */
+ *
+ * On cache hit (slot READY in SDRAM matching track & cue frame): copy N sectors
+ * into slots 120..120+N-1, advance pcm_write_sector/behind_start, schedule the
+ * background continuation read from cue_frame+N into slot 120+N, and jump the
+ * audio task substate to case 0x73 (instant snapshot ready). On cache miss for
+ * a hot-cue CALL, shorten count to HC_PREFILL_MIN (180). Runs on AudioTask.
+ */
 #define HC_RING_REQUEST     C850_FN(0x0C008C8A, void, (int kind, int p2, u32 max, u32 pos, u32 count, \
                                                      u32 start, int p7))
 #define HC_PREFILL_STOCK    400u
@@ -491,10 +785,81 @@ static void hc_prefill_arm(void)
     hc_prefill_armed = 1;
 }
 
+static void hc_clear_ring_sentinels(u32 from_sec, u32 count)
+{
+    u32 k;
+
+    for (k = 0; k < count && from_sec + k < C850_PCM_RING_SLOTS; k++)
+        C850_U32(HC_META_BASE + (from_sec + k) * HC_META_BYTES) = 0xFFFFFFFFu;
+}
+
+static int hc_try_cache_restore(int p2, u32 max, u32 pos, int p7)
+{
+    u32 slot = hc_restore_slot, n, cont, track_len, req_cnt;
+    const hc_cache_slot_t *s;
+
+    hc_restore_slot = 0;
+    if (slot < 1u || slot > HC_CACHE_SLOTS)
+        return 0;
+    if (!hot_cues_on || !hot_cues_precache || !hc_cache_budget_ok())
+        return 0;
+    if (C850_TICK_MS - hc_restore_since > HC_PREFILL_ARM_MS)
+        return 0;
+    if (C850_U32(0x0C7F66F0u) != hc_restore_frame)
+        return 0;
+    s = &hc_cache[slot - 1u];
+    if (!hc_cache_match(slot - 1u, hc_restore_frame))
+        return 0;
+    n = s->sectors;
+    track_len = C850_TRACK_LENGTH;
+    cont = s->cue_frame + n;
+    if (n < HC_CACHE_MIN_SECTORS && (track_len == 0u || cont < track_len))
+        return 0;
+
+    HC_MEMCPY(C850_PCM_RING_BASE + HC_PREFILL_SLOT * C850_PCM_SECTOR_BYTES,
+              hc_cache_pcm(slot - 1u), n * C850_PCM_SECTOR_BYTES);
+    HC_MEMCPY(HC_META_BASE + HC_PREFILL_SLOT * HC_META_BYTES,
+              hc_cache_meta(slot - 1u), n * HC_META_BYTES);
+    hc_clear_ring_sentinels(0u, HC_PREFILL_SLOT);
+    hc_clear_ring_sentinels(HC_PREFILL_SLOT + n, 32u);
+    if (track_len != 0u && cont >= track_len && HC_PREFILL_SLOT + n < C850_PCM_RING_SLOTS)
+        C850_U32(HC_META_BASE + (HC_PREFILL_SLOT + n) * HC_META_BYTES + 8u) = 0x00AA0000u;
+
+    HC_WRITE_SECTOR = (s16)(HC_PREFILL_SLOT + n);
+    HC_BEHIND_START = (s16)HC_PREFILL_SLOT;
+    C850_U32(0x0C7F6744u) = cont - 1u;
+
+    if (track_len != 0u && cont < track_len) {
+        req_cnt = C850_PCM_RING_SLOTS - (HC_PREFILL_SLOT + n);
+        if (req_cnt > HC_PREFILL_STOCK)
+            req_cnt = HC_PREFILL_STOCK;
+        HC_FRAMES_TO_MSF(cont, pos);
+        HC_RING_REQUEST(4, p2, max, pos, req_cnt, HC_PREFILL_SLOT + n, p7);
+        hc_stream_inflight = 1;
+        hc_stream_since = C850_TICK_MS;
+    } else {
+        req_cnt = 0;
+        hc_stream_inflight = 0;
+        C850_U8(0x0C7F663Du) = 0u;
+        C850_U8(0x0C7F65FEu) = 0u;
+    }
+    C850_U8(0x0C7F6625u) = 0x72u;     /* caller at 0x0C0F544E steps to case 0x73 */
+    hot_cues_prefill_last = req_cnt;
+    hot_cues_cache_last_sectors = n;
+    hot_cues_cache_hits++;
+    return 1;
+}
+
 void hot_cues_ring_request(int kind, int p2, u32 max, u32 pos, u32 count, u32 start, int p7)
 {
     u32 n = hot_cues_prefill;
 
+    if (kind == 4 && count == HC_PREFILL_STOCK && start == HC_PREFILL_SLOT &&
+        hc_try_cache_restore(p2, max, pos, p7)) {
+        hc_prefill_armed = 0;
+        return;
+    }
+    hc_stream_inflight = 0;
     if (hc_prefill_armed && kind == 4 && count == HC_PREFILL_STOCK && start == HC_PREFILL_SLOT) {
         hc_prefill_armed = 0;
         if (hot_cues_on && n != 0 && n < HC_PREFILL_STOCK) {
@@ -507,8 +872,282 @@ void hot_cues_ring_request(int kind, int p2, u32 max, u32 pos, u32 count, u32 st
     HC_RING_REQUEST(kind, p2, max, pos, count, start, p7);
 }
 
+/* Pool 0x0C0F73A8 inside player_tick_usb_playback (case 0x10): skip sending a
+ * duplicate read-ahead request while the case-0x77 continuation read is still
+ * running in mp3ActTask; caller steps into case 0x11 and waits for done. */
+void hot_cues_play_ring_request(int kind, int p2, u32 max, u32 pos, u32 count, u32 start, int p7)
+{
+    if (hc_stream_inflight) {
+        if (C850_U8(0x0C7F663Du) != 0u) {
+            C850_U8(0x0C7F663Du) = 0u;
+            hc_stream_inflight = 0;
+        } else if (C850_TICK_MS - hc_stream_since > 5000u) {
+            hc_stream_inflight = 0;
+        } else {
+            return;
+        }
+    }
+    HC_RING_REQUEST(kind, p2, max, pos, count, start, p7);
+}
+
+/* ---- Background pre-caching on AudioTask + mp3ActTask ----
+ *
+ * AudioTask (pools 0x0C014E8C for audio state 3, 0x0C014E90 for 4/5)
+ * schedules one PENDING hot-cue slot whenever playback is steady in USB mode
+ * with safe ahead runway (>= 600 sectors playing, >= 500 paused/cued) and
+ * the reader is idle (0x0C7F65FE, 0x0C7F663D clear). It fills the reader's
+ * job struct 0x0C7F6538 as FUN_0C008C8A does (kind 4, p2 = 0xFE marks it,
+ * MSF of the cue, count, start = the write sector), keeping +0x14, the track
+ * slot the last stock request left (FUN_0C0BEEC0 copies it to 0x0CE5A9E4 and
+ * 0x0C0BECAA refuses a job whose slot does not fit 0x0CE5A9E0), and sets
+ * 0x0C7F670E so the next stock read-ahead re-seeks (kind 6) to the ring's
+ * write frame. mp3ActTask runs the stock kind-4 seek, then hot_cues_pcm_init
+ * switches the decode pass to kind 10 / mode 2 so FUN_0C0C0346 leaves
+ * 0x0C750C3C and 0x0C7F645E alone while hot_cues_pcm_write copies PCM +
+ * metadata into the slot at HC_CACHE_BASE. A jump, a seek, reverse, a new
+ * track or runway < 300 sectors cancels the job (0x0CE5A9EC = 2).
+ */
+#define HC_PLAYER_PLAY_TICK C850_FN(0x0C0F65F0u, u32, (u32 deck))
+#define HC_PLAYER_USB_TICK  C850_FN(0x0C0F6E6Cu, u32, (u32 deck))
+#define HC_BEBA0            C850_FN(0x0C0BEBA0u, u32, (u32 msg))
+#define HC_PCM_INIT         C850_FN(0x0C0EFB8Eu, void, (u16 sector))
+#define HC_PCM_WRITE        C850_FN(0x0C0EFB9Au, void, (u32 src, u32 n_longwords))
+#define HC_VBR_FIND         C850_FN(0x0C08F51Au, u32, (int track_idx, int p2, u32 frame, \
+                                                       u32 *out_a, u32 *out_pair, u32 *out_b, int p7))
+
+__attribute__((noinline))
+static void hc_bg_step(u16 deck)
+{
+    u8 usb_st = C850_U8(0x0C7F6626u), usb_sub = C850_U8(0x0C7F6625u);
+    u8 ast = C850_AUDIO_STATE;
+    u32 pst = C850_PLAYER_STATE;
+    u16 ahead = C850_U16(0x0C7F6686u);
+    int steady = (ast == 3u && usb_st == 0u && usb_sub == 0x11u) ||
+                 ((ast == 4u || ast == 5u) &&
+                  ((usb_st == 0u && usb_sub == 0x10u) || (usb_st == 1u && usb_sub == 0x20u)));
+    u32 i, track_len, pos;
+
+    if (hc_bg_inflight) {
+        int abort = 0;
+        if (!hot_cues_on || !hot_cues_precache || !hot_cues_avail || C850_IS_USB_MODE != 1)
+            abort = 1;
+        else if (hc_restore_slot || hc_stream_inflight || hc_prefill_armed || hc_play)
+            abort = 1;
+        else if (hc_bg_h1 != hc_h1 || hc_bg_h2 != hc_h2)
+            abort = 1;
+        else if (!steady)
+            abort = 1;
+        else if (ast == 3u && ahead < 300u)
+            abort = 1;
+        else if (C850_U8(0x0C7F666Cu) != 0u)
+            abort = 1;
+        else if (C850_TICK_MS - hc_bg_since > 5000u)
+            abort = 1;
+        if (abort)
+            hc_bg_abort();
+        return;
+    }
+    if (!hot_cues_on || !hot_cues_precache || !hot_cues_avail || C850_IS_USB_MODE != 1)
+        return;
+    if (!hc_cache_budget_ok())
+        return;
+    track_len = C850_TRACK_LENGTH;
+    if (track_len == 0u)
+        return;
+    if (hc_restore_slot || hc_stream_inflight || hc_prefill_armed || hc_play)
+        return;
+    if (!steady)
+        return;
+    if (pst != C850_STATE_PLAYING && pst != C850_STATE_LOOPING &&
+        pst != C850_STATE_PAUSED_CDJ && pst != C850_STATE_CUED)
+        return;
+    if (C850_U8(0x0C7F666Cu) != 0u)
+        return;
+    if (C850_U8(0x0C7F65FEu) != 0u || C850_U8(0x0C7F663Du) != 0u ||
+        C850_U8(0x0CE5A9ECu) == 5u)
+        return;
+    if (ast == 3u ? (ahead < 600u) : (ahead < 500u))
+        return;
+    if (C850_U16(0x0C7F654Cu) == 0u)  /* no stock request has named the track yet */
+        return;
+
+    for (i = 0; i < HC_CACHE_SLOTS; i++) {
+        hc_cache_slot_t *s = &hc_cache[i];
+        u32 want, start_s;
+
+        if (s->state != HC_CACHE_PENDING || s->h1 != hc_h1 || s->h2 != hc_h2)
+            continue;
+        if (s->cue_frame >= track_len)
+            continue;
+        want = track_len - s->cue_frame;
+        if (want > HC_CACHE_SECTORS)
+            want = HC_CACHE_SECTORS;
+        if (want < HC_CACHE_MIN_SECTORS && s->cue_frame + want < track_len)
+            continue;
+        if (hc_ring_find_span(s->cue_frame, want, &start_s)) {
+            hc_copy_ring_to_slot(i, start_s, want);
+            s->sectors = (u16)want;
+            s->state = HC_CACHE_READY;
+            hot_cues_cache_captures++;
+            hc_cache_update_mask();
+            return;
+        }
+        hc_bg_slot = (u8)(i + 1u);
+        hc_bg_frame = s->cue_frame;
+        hc_bg_h1 = s->h1;
+        hc_bg_h2 = s->h2;
+        hc_bg_want = (u16)want;
+        hc_bg_sectors = 0u;
+        hc_bg_longwords = 0u;
+        hc_bg_cancel = 0u;
+        hc_bg_since = C850_TICK_MS;
+        hc_bg_inflight = 1u;
+
+        pos = s->cue_frame;
+        C850_U8(0x0C7F6549u) = 4u;
+        C850_U8(0x0C7F654Au) = 0xFEu; /* background pre-cache marker */
+        /* +0x14 is track_length_slot(track number), the loaded track's slot
+         * (FUN_0C0BEEC0 copies it to 0x0CE5A9E4; 0x0C0BECAA refuses the job when
+         * it does not fit 0x0CE5A9E0): keep the one the last stock request for
+         * this track left in the job struct. */
+        C850_U16(0x0C7F654Eu) = (u16)(pos / 4500u);
+        C850_U16(0x0C7F6550u) = (u16)((pos / 75u) % 60u);
+        C850_U16(0x0C7F6552u) = (u16)(pos % 75u);
+        C850_U16(0x0C7F6554u) = (u16)want;
+        C850_U16(0x0C7F6556u) = (u16)HC_WRITE_SECTOR;
+        C850_U8(0x0C7F6558u) = (u8)deck;
+        C850_U8(0x0C7F670Eu) = 1u;
+        C850_U8(0x0C7F65FEu) = 1u;
+        return;
+    }
+}
+
+u32 hot_cues_play_tick(u32 deck)
+{
+    u32 r = HC_PLAYER_PLAY_TICK(deck);
+
+    hc_bg_step((u16)deck);
+    return r;
+}
+
+u32 hot_cues_usb_tick(u32 deck)
+{
+    u32 r = HC_PLAYER_USB_TICK(deck);
+
+    hc_bg_step((u16)deck);
+    return r;
+}
+
+u32 hot_cues_beba0(u32 msg)
+{
+    u32 r = 0u;
+
+    if (C850_U8(msg + 0x11u) == 4u && C850_U8(msg + 0x12u) == 0xFEu && hc_bg_inflight) {
+        u32 slot = (u32)hc_bg_slot - 1u;
+        if (!hc_bg_cancel && slot < HC_CACHE_SLOTS) {
+            hc_bg_divert = 1u;
+            r = HC_BEBA0(msg);
+            hc_bg_divert = 0u;
+            if (!hc_bg_cancel && C850_U8(0x0CE5A9ECu) != 2u && hc_bg_sectors > 0u) {
+                hc_cache_slot_t *s = &hc_cache[slot];
+                u32 track_len = C850_TRACK_LENGTH;
+                if (s->state == HC_CACHE_PENDING && s->h1 == hc_bg_h1 &&
+                    s->h2 == hc_bg_h2 && s->cue_frame == hc_bg_frame &&
+                    (hc_bg_sectors >= HC_CACHE_MIN_SECTORS ||
+                     (track_len != 0u && hc_bg_frame + hc_bg_sectors >= track_len))) {
+                    s->sectors = hc_bg_sectors;
+                    s->state = HC_CACHE_READY;
+                    hot_cues_cache_captures++;
+                    hot_cues_precaches++;
+                    hc_cache_update_mask();
+                }
+            } else if (hc_bg_cancel || C850_U8(0x0CE5A9ECu) == 2u) {
+                hot_cues_precache_aborts++;
+            }
+        } else {
+            hot_cues_precache_aborts++;
+        }
+        hc_bg_divert = 0u;
+        hc_bg_cancel = 0u;
+        hc_bg_inflight = 0u;
+        return r;
+    }
+    hc_bg_divert = 0u;
+    return HC_BEBA0(msg);
+}
+
+void hot_cues_pcm_init(u16 sector)
+{
+    if (hc_bg_divert) {
+        C850_U8(0x0CE5AC70u) = 10u;
+        C850_U8(0x0CE5AC71u) = 2u;
+        C850_U16(0x0CE5AC76u) = 3000u;
+        C850_U16(0x0CE5AC44u) = 0u;
+        sector = 0u;
+    }
+    HC_PCM_INIT(sector);
+}
+
+__attribute__((noinline))
+static void hc_bg_write_meta(u32 slot, u32 sec)
+{
+    u32 dst = hc_cache_meta(slot) + sec * HC_META_BYTES;
+    u32 frame = hc_bg_frame + sec;
+    u16 track_idx = C850_U16(0x0CE5AC60u);
+    u32 tinfo = 0x0CE59B50u + (u32)track_idx * 0x3A4u;
+
+    C850_U32(dst + 0u) = frame;
+    C850_U32(dst + 8u) = (u32)C850_U16(0x0CE5A9E4u);
+    if (C850_U8(tinfo + 0x3A1u) & 0x80u) {
+        u32 a = 0u, b = 0u, pair[2] = {0u, 0u};
+        C850_U8(0x0CE6451Cu) = 1u;
+        if (HC_VBR_FIND((int)(s16)track_idx, 0, frame, &a, pair, &b, 0x0Eu) == 0u) {
+            C850_U32(dst + 4u) = pair[1];
+            C850_U32(dst + 12u) = pair[0] & 0x7FFFFFFFu;
+        } else {
+            C850_U32(dst + 4u) = 0u;
+            C850_U32(dst + 12u) = 0xFFFFFFFFu;
+        }
+        C850_U8(0x0CE6451Cu) = 0u;
+    } else {
+        C850_U32(dst + 4u) = 0u;
+        C850_U32(dst + 12u) = 0xFFFFFFFFu;
+    }
+}
+
+void hot_cues_pcm_write(u32 src, u32 n_longwords)
+{
+    u32 slot, max_lw, avail_lw, cp, done_sec;
+
+    if (!hc_bg_divert) {
+        HC_PCM_WRITE(src, n_longwords);
+        return;
+    }
+    slot = (u32)hc_bg_slot - 1u;
+    if (slot >= HC_CACHE_SLOTS || hc_bg_cancel)
+        return;
+    max_lw = (u32)hc_bg_want * HC_SECTOR_LONGWORDS;
+    if (hc_bg_longwords < max_lw) {
+        avail_lw = max_lw - hc_bg_longwords;
+        cp = n_longwords < avail_lw ? n_longwords : avail_lw;
+        if (cp > 0u) {
+            HC_MEMCPY(hc_cache_pcm(slot) + hc_bg_longwords * 4u, src, cp * 4u);
+            hc_bg_longwords += cp;
+        }
+    }
+    done_sec = hc_bg_longwords / HC_SECTOR_LONGWORDS;
+    if (done_sec > (u32)hc_bg_want)
+        done_sec = (u32)hc_bg_want;
+    while ((u32)hc_bg_sectors < done_sec) {
+        hc_bg_write_meta(slot, (u32)hc_bg_sectors);
+        hc_bg_sectors++;
+    }
+}
+
 static void hc_jump(u32 n, u32 rec, u32 st)
 {
+    int in_cache;
+
     if (HC_REC_TO_ENTRY(rec, hc_entry) != 1) {
         hot_cues_failed++;
         return;
@@ -528,14 +1167,26 @@ static void hc_jump(u32 n, u32 rec, u32 st)
             }
             return;
         }
-        if (st == C850_STATE_PLAYING)
+        in_cache = hot_cues_precache && hc_cache_match(n - 1u, hc_entry[3]);
+        if (st == C850_STATE_PLAYING && !in_cache)
             hot_cues_instant_misses++;
+    } else {
+        in_cache = hot_cues_precache && hc_cache_match(n - 1u, hc_entry[3]);
     }
+    if (in_cache) {
+        hc_restore_slot = (u8)n;
+        hc_restore_frame = hc_entry[3];
+        hc_restore_since = C850_TICK_MS;
+    } else {
+        hc_restore_slot = 0;
+    }
+    hc_bg_abort();
     hc_prefill_arm();
     hc_sel = 1;
     c850_cue_call_prev_next(1);
     if (hc_sel) {                     /* the CALL path's gates said no */
         hc_sel = 0;
+        hc_restore_slot = 0;
         hot_cues_failed++;
         return;
     }
@@ -625,6 +1276,8 @@ static void hc_record(u32 n, u32 key, u32 st)
     hot_cues_last_slot = n;
     hot_cues_last_in = e[3];
     hot_cues_last_out = e[4];
+    if (hot_cues_precache)
+        hc_cache_set_slot(n - 1u, e[3], (e[0] & 1u) ? e[4] : 0u, (e[0] & 1u) ? 1u : 0u);
 }
 
 static void hc_delete(u32 n, u32 key, u32 rec)
@@ -636,12 +1289,15 @@ static void hc_delete(u32 n, u32 key, u32 rec)
     hc_del = (u8)n;
     if (hc_write(key, (u32)hc_rec) != 0)
         hot_cues_failed++;
-    else
+    else {
         hot_cues_deletes++;
+        hc_cache_clear_slot(n - 1u);
+    }
     hc_del = 0;
     hot_cues_last_slot = n;
 }
 
+__attribute__((noinline))
 static void hc_action(u32 n, u32 kind)
 {
     u32 key = hc_key(), st = C850_PLAYER_STATE, rec;
@@ -666,23 +1322,30 @@ static void hc_action(u32 n, u32 kind)
  * hash) changes. */
 static u32 hc_seen, hc_seen_track;
 
+__attribute__((noinline))
 static void hc_refresh(void)
 {
     u32 key = hc_key(), h;
 
     if (!key || C850_IS_USB_MODE != 1) {
+        if (hc_had_key)
+            hc_cache_invalidate_all();
         hc_had_key = 0;
         hot_cues_avail = 0;
         return;
     }
     h = HC_HASH1(key + 4);
     if (!hc_had_key || h != hc_seen || (u32)HC_LOADED_TRACK != hc_seen_track) {
+        hc_cache_invalidate_all();
         hc_had_key = 1;
         hc_seen = h;
         hc_seen_track = (u32)HC_LOADED_TRACK;
         hot_cues_avail = hc_read(key);
-        if (hot_cues_avail)
+        if (hot_cues_avail) {
             hot_cues_mask = hot_cues_slot_mask(C850_ANLZ_CTX);
+            if (hot_cues_precache)
+                hc_cache_sync_from_buf();
+        }
     }
 }
 
@@ -694,8 +1357,11 @@ void hot_cues_tick(void)
 
     hc_refresh();
     hc_track_out();
+    hc_cache_poll_capture();
     if (hc_prefill_armed && C850_TICK_MS - hc_prefill_since > HC_PREFILL_ARM_MS)
         hc_prefill_armed = 0;         /* the CALL made no prefill request */
+    if (hc_restore_slot && C850_TICK_MS - hc_restore_since > HC_PREFILL_ARM_MS)
+        hc_restore_slot = 0;
     /* After a jump that was playing: PLAY presses for the state-6 handler,
      * as after a stock CALL, until the deck plays (the handler ignores a
      * press while the cue is still being prepared). Press one tick, release

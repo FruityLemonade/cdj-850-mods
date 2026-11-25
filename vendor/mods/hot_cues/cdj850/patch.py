@@ -94,6 +94,42 @@ MODS = {
         'hot cues: a short ring prefill after a hot-cue CALL (gated, audio task)',
         [0x6560, 0xD760, 0xD262, 0x420B, 0x66D3, 0x7F0C], 2,
         0x0C008C8A, 'hot_cues_ring_request'),
+    # 0x0C0F732E: mov.l @(0x0C0F739C),r7; mov.l r1,@r15; mov.l @(0x0C0F73A8),r2; mov.l @(0x0C0F73AC),r1;
+    # jsr @r2; mov.b @r1,r5 -- USB playback read-ahead request in player_tick_usb_playback.
+    'hot_cues_play_req': _redirect(
+        'hot cues: coordinate playback read-ahead with cached cue streaming continuation',
+        [0xD71B, 0x2F12, 0xD21D, 0xD11D, 0x420B, 0x6510], 2,
+        0x0C008C8A, 'hot_cues_play_ring_request'),
+    # 0x0C014D2E: cmp/eq #3,r0; bf; mov.l @(0x0C014E8C),r2; jsr @r2; mov r14,r4 -- USB play tick
+    # on AudioTask (ast == 3): schedules background pre-caching during normal playback.
+    'hot_cues_play_tick': _redirect(
+        'hot cues: schedule and preempt background pre-cache during AudioTask playback',
+        [0x8B04, 0xD257, 0x420B, 0x64E3, 0xA03C, 0x0009], 1,
+        0x0C0F65F0, 'hot_cues_play_tick'),
+    # 0x0C014D40: cmp/eq #5,r0; bf; mov.l @(0x0C014E90),r2; jsr @r2; mov r14,r4 -- USB pause/cue tick
+    # on AudioTask (ast == 4/5): schedules background pre-caching while paused or cued.
+    'hot_cues_usb_tick': _redirect(
+        'hot cues: schedule and preempt background pre-cache on AudioTask',
+        [0x8B04, 0xD253, 0x420B, 0x64E3, 0xA033, 0x0009], 1,
+        0x0C0F6E6C, 'hot_cues_usb_tick'),
+    # 0x0C0BDFB4: mov.l r12,@r2; mov.w r1,@r13; mov.l @(0x0C0BE0CC),r1; jsr @r1; mov r14,r4
+    # -- FUN_0c0beba0 in mp3ActTask: manages diverted background pre-cache decodes.
+    'hot_cues_beba0': _redirect(
+        'hot cues: wrap mp3ActTask decode dispatch for background cue pre-caching',
+        [0x22C2, 0x2D11, 0xD145, 0x410B, 0x64E3, 0xE701], 2,
+        0x0C0BEBA0, 'hot_cues_beba0'),
+    # 0x0C0BF750: mov.l @(0x0C0BF7CC),r2; mov.w @r2,r4; mov.l @(0x0C0BF818),r10; jsr @r10
+    # -- pcm_ring_set_sector in FUN_0c0bf6ba: configures kind=10/mode=2 on diverted bg pre-cache.
+    'hot_cues_pcm_init': _redirect(
+        'hot cues: isolate ring state before diverted background cue decode',
+        [0xD21F, 0x6421, 0xDA31, 0x4A0B, 0x6CF3, 0xD131], 2,
+        0x0C0EFB8E, 'hot_cues_pcm_init'),
+    # 0x0C0C02F8: bf 0xc0c033e; mov r12,r4; mov.l @(0x0C0C056C),r2; jsr @r2; mov r13,r5
+    # -- pcm_ring_write in FUN_0c0c02d4: diverts decoded PCM + metadata into SDRAM cue slot.
+    'hot_cues_pcm_write': _redirect(
+        'hot cues: divert background decoded PCM and metadata into SDRAM cue slot',
+        [0x8B23, 0x64C3, 0xD29C, 0x420B, 0x65D3, 0xD69C], 2,
+        0x0C0EFB9A, 'hot_cues_pcm_write'),
     'hot_cues_flash': Mod(
         what='hot cues: HOT CUE ON / OFF on the display after a toggle',
         target='main',
