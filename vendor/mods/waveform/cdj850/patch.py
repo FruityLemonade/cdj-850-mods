@@ -5,8 +5,9 @@ Streams a 100-column zoomed/scrolling waveform into the existing 100x5 VFD strip
 (0x0C9D1199 / 0x0C9D1188, transmitted by panel_tx_waveform at 0x0C0662AE) at up
 to 50 Hz while keeping rows 1-2 untouched (fully compatible with info_order and
 phase_meter). Scrolling counterclockwise on INFO Page 1 (cursor 0) zooms out:
-close (4 s) -> medium (16 s) -> whole-track overview; scrolling clockwise zooms
-back in before advancing to INFO Page 2. Code is C in payload/waveform.c.
+close (4 s) -> mid (8 s) -> medium (16 s) -> whole-track overview; scrolling
+clockwise zooms back in before advancing to INFO Page 2. Code is C in
+payload/waveform.c.
 """
 from sigpatch import Anchor, Mod, PoolRedirect
 
@@ -41,7 +42,7 @@ MODS = {
         **BPM_SITE,
     ),
     'waveform_rotary': Mod(
-        what='Waveform: INFO Page 1 rotary CCW/CW zoom control (close -> medium -> overview)',
+        what='Waveform: INFO Page 1 rotary CCW/CW zoom control (close -> mid -> medium -> overview)',
         target='main',
         fw_versions=('1.13',),
         args=[],
@@ -73,11 +74,18 @@ MODS = {
         old=0x0C0C45B4, routine='payload:c850_ui_usb_mount',
     ),
     'waveform_center_marker': PoolRedirect(
-        what='Waveform: mark playhead, cues, hotcues, pending loop-in, and loops on the red strip',
+        what='Waveform: mark playhead, beat grid, and active loop on the red strip',
         target='main', fw_versions=('1.13',),
         anchor=Anchor(sig=[0x430B, 0x2610, 0xD33A, 0x434B,
                            0xD435, 0x6042, 0xE700], index=2, literal=True),
         old=0x0C0664A8, routine='payload:waveform_center_marker',
+    ),
+    'waveform_tx_waveform': PoolRedirect(
+        what='Waveform: transmit 0..15 columns without truncating at zero bytes when zoomed',
+        target='main', fw_versions=('1.13',),
+        anchor=Anchor(sig=[0xD63A, 0x2410, 0xD33A, 0x430B,
+                           0x2610, 0xD33A, 0x434B], index=2, literal=True),
+        old=0x0C0662AE, routine='payload:waveform_tx_waveform',
     ),
     'waveform_cue_column': PoolRedirect(
         what='Waveform: clear whole-track cue bar and show zoomed active cue on the waveform',
