@@ -21,7 +21,7 @@
       <div class="intro">
         <div>
           <h1>Firmware Patcher</h1>
-          <p>Build a custom CDJ-850 firmware update with on-deck UTILITY toggles saved to USB, or repack stock firmware to roll back.</p>
+          <p>Build a custom CDJ-850 firmware update from mods tested on the deck, or repack the stock firmware to roll back.</p>
         </div>
         <div class="compatibility">
           <span class="label">Supported firmware</span>
@@ -55,7 +55,7 @@
               <span class="step" aria-hidden="true">02</span>
               <h2 id="builds-heading">Build</h2>
             </div>
-            <p class="section-note">Toggleable mods and the Auto Standby timeout (20 / 40 / 60 / 120 min) are configured in the UTILITY menu and saved to <code>PIONEER/MODSET.DAT</code> on your USB stick.</p>
+            <p class="section-note">Optional mods are switched on the deck: most in the UTILITY menu, Hot cues and Loop roll with a BEAT SELECT combo. UTILITY settings, the Auto standby timeout included, are saved to <code>PIONEER/MODSET.DAT</code> on your USB stick.</p>
             <fieldset id="builds">
               <legend class="sr-only">Choose firmware build</legend>
               <div class="build-list" id="build-options"></div>
@@ -76,7 +76,7 @@
                   <ul id="always-on-list"></ul>
                 </div>
                 <div>
-                  <span class="label">Toggleable in UTILITY</span>
+                  <span class="label">Switched on the deck</span>
                   <ul id="toggleable-list"></ul>
                 </div>
               </div>
@@ -98,7 +98,7 @@
           <p class="version-help" id="version-help">Use one digit, a dot and two digits. The USB updater skips a matching version such as <code>1.14</code> over <code>1.14</code>. Use <code>0.13</code> for a modded build you can reinstall, then restore stock with the original <code>1.13</code> update.</p>
           <div class="warning">
             <strong>Firmware installation risk</strong>
-            <p>Custom firmware can cause playback problems or leave the deck unable to boot. The Standard build holds emulator-tested mods; the Experimental build adds in-development mods (Hot cues, Zoomed waveform, Loop roll). Keep the original update for recovery.</p>
+            <p>Every mod has been tested on a CDJ-850. Standard holds the mods with no known issues; Experimental adds Hot cues, the zoomed waveform and Loop roll, which still have minor issues. Custom firmware can still cause playback problems or leave the deck unable to boot, so keep the original update for recovery.</p>
           </div>
           <button class="button primary" type="button" id="build" disabled>Repack firmware</button>
           <a class="button primary" id="download" download="C850MAIN.UPD" hidden>Download C850MAIN.UPD</a>

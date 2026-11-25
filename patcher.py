@@ -13,6 +13,8 @@ from patch_update import conf_rows
 
 MODEL = "cdj850"
 
+# Every mod here has been tested on a CDJ-850. Standard holds the ones with no
+# known issues; Experimental adds the ones that work but still have minor issues.
 ALWAYS_ON = (
     "version_display",
     "bpm999",
@@ -21,7 +23,7 @@ ALWAYS_ON = (
     "loop_resize",
     "auto_standby",
 )
-TESTED_TOGGLEABLE = (
+SWITCHABLE = (
     "quant_loops",
     "bpm_decimals",
     "bpm_lock",
@@ -29,62 +31,62 @@ TESTED_TOGGLEABLE = (
     "info_order",
     "browse",
 )
-DEV_TOGGLEABLE = (
+KNOWN_ISSUES = (
     "hot_cues",
     "waveform",
     "loop_roll",
 )
 
 ALWAYS_ON_LABELS = [
-    "Version display (custom + base 1.13 in UTILITY)",
+    "Version display (VERSION No. in UTILITY)",
     "BPM up to 999",
     "USB FLAC playback (16/24-bit, 44.1/48 kHz)",
     "USB WIDE tempo (±100%)",
-    "Loop resize (CUE/LOOP CALL </>)",
-    "Auto standby (20 / 40 / 60 / 120 min in UTILITY)",
+    "Loop resize (CUE/LOOP CALL ◀ / ▶ in a loop)",
+    "Auto standby (20 / 40 / 60 / 120 min, set in UTILITY)",
 ]
-TESTED_TOGGLE_LABELS = [
-    "Quantized loops (no drift)",
-    "BPM decimals in INFO view",
-    "BPM lock (±100%)",
-    "Phase meter (INFO Page 2)",
-    "INFO screen order",
-    "Browse played markers & BPM/key sort",
+SWITCHABLE_LABELS = [
+    "Quantized loops (UTILITY: QUANTIZE)",
+    "BPM decimals in INFO (UTILITY: BPM DECIMALS)",
+    "BPM lock, ±100% (UTILITY: BPM LOCK)",
+    "Phase meter on INFO page 2 (UTILITY: PHASE METER)",
+    "INFO screen order (UTILITY: INFO ORDER)",
+    "Browse played markers & BPM/key sort (UTILITY: BROWSE MODS)",
 ]
-DEV_TOGGLE_LABELS = [
-    "Hot cues (BEAT 1/2/4)",
-    "Zoomed scrolling waveform",
-    "Loop roll",
+KNOWN_ISSUES_LABELS = [
+    "Hot cues on BEAT 1/2/4 (BEAT SELECT + RELOOP)",
+    "Zoomed scrolling waveform (UTILITY: WAVEFORM)",
+    "Loop roll, a slip loop (BEAT SELECT + LOOP OUT)",
 ]
 
 BUILDS = {
     "stable": {
         "title": "Standard build",
-        "badge": "Tested",
+        "badge": "Hardware tested",
         "description": (
-            "All emulator-tested modifications. Optional features can be enabled or "
-            "disabled in the UTILITY menu and saved to PIONEER/MODSET.DAT on your USB stick."
+            "Every mod that has been tested on a CDJ-850 with no known issues. "
+            "Optional mods are switched on the deck."
         ),
         "alwaysOn": ALWAYS_ON_LABELS,
-        "toggleable": TESTED_TOGGLE_LABELS,
-        "mods": ALWAYS_ON + TESTED_TOGGLEABLE,
+        "toggleable": SWITCHABLE_LABELS,
+        "mods": ALWAYS_ON + SWITCHABLE,
     },
     "experimental": {
         "title": "Experimental build",
-        "badge": "In development",
+        "badge": "Minor issues",
         "description": (
-            "Everything in Standard plus in-development features (Hot cues, "
-            "Zoomed scrolling waveform, Loop roll). Toggle features in UTILITY (saved to USB)."
+            "Standard plus Hot cues, the zoomed scrolling waveform and Loop roll. "
+            "These are hardware tested too, but still have minor known issues."
         ),
         "alwaysOn": ALWAYS_ON_LABELS,
-        "toggleable": TESTED_TOGGLE_LABELS + DEV_TOGGLE_LABELS,
-        "mods": ALWAYS_ON + TESTED_TOGGLEABLE + DEV_TOGGLEABLE,
+        "toggleable": SWITCHABLE_LABELS + KNOWN_ISSUES_LABELS,
+        "mods": ALWAYS_ON + SWITCHABLE + KNOWN_ISSUES,
     },
     "stock": {
         "title": "Restore stock",
         "badge": "Original",
         "description": (
-            "Repack the unmodified Pioneer v1.13 firmware with a new version number "
+            "The unmodified Pioneer v1.13 firmware with a new version number, "
             "to roll back over a modded build."
         ),
         "alwaysOn": [],
@@ -94,7 +96,7 @@ BUILDS = {
 }
 
 rows = conf_rows()
-MODS = {name: rows[name] for name in ALWAYS_ON + TESTED_TOGGLEABLE + DEV_TOGGLEABLE}
+MODS = {name: rows[name] for name in ALWAYS_ON + SWITCHABLE + KNOWN_ISSUES}
 
 
 def prebuilt_payload(folders, model):
