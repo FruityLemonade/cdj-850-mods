@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""loop_roll on the CDJ-850 MAIN 1.13: hold a beat button for a slip loop (loop roll).
+"""loop_roll (slip mode) on the CDJ-850 MAIN 1.13: loop roll, reverse, VINYL scratch/backspin, and pause slip.
 
 Three pool-word redirects and one hook on a shared span, no cave bytes; the code
 is C in payload/loop_roll.c and the shared payload/common/c850_ui.c and
@@ -17,10 +17,11 @@ trace.
   playhead and, on release, moves the read pointer there instead of wrapping.
 * loop_roll_keys / loop_roll_tick: the shared key filter (pool 0x0C0ED038) and
   state tick (pool 0x0C0EC838) of c850_ui, as hot_cues and quant_loops redirect
-  them: BEAT SELECT + LOOP OUT toggles roll mode, beat presses start a roll, the
-  release asks the ISR for the jump, and the tick then gives one RELOOP/EXIT.
-* loop_roll_flash: ROLL ON / ROLL OFF on the dot matrix (c850_ui_flash_hook on
-  the tail of display_stage_bpm, the shared span).
+  them: BEAT SELECT + LOOP OUT toggles slip mode, beat presses start a roll,
+  and the tick tracks reverse, VINYL scratch/backspin, and pause over the
+  1 ms tick and lands with IRQ7 masked via c850_irq_save / c850_irq_restore.
+* loop_roll_flash: SLIP ON / SLIP OFF / SLIP MISS on the dot matrix
+  (c850_ui_flash_hook on the tail of display_stage_bpm, the shared span).
 """
 from sigpatch import Anchor, Mod, PoolRedirect
 
@@ -57,7 +58,7 @@ MODS = {
         [0x4F16, 0x4BF0, 0xD33E, 0x434B, 0xD63E, 0x6060], 2,
         0x0C0EB388, 'c850_ui_tick'),
     'loop_roll_flash': Mod(
-        what='loop roll: ROLL ON / OFF on the display after a toggle',
+        what='slip mode: SLIP ON / OFF / MISS on the display',
         target='main',
         fw_versions=('1.13',),
         args=[],

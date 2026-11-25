@@ -55,7 +55,9 @@ typedef void c850_hook_fn(u32 *regs, u32 *sp);
 #define C850_TEMPO_RANGE        C850_U8(0x0CE6D0E1)  /* 1 6%, 2 10%, 3 16%, 4 WIDE */
 #define C850_MASTER_TEMPO       C850_U8(0x0CE6D0E0)
 #define C850_JOG_MODE_VINYL     C850_U8(0x0CE6D0DE)
+#define C850_JOG_TOUCHED        C850_U8(0x0CE6D0F3)  /* 1 while jog top touched (VINYL) */
 #define C850_DSP_TARGET_SPEED   C850_U32(0x0CE6C940) /* 0x080000 = 1.0x */
+#define C850_SPEED_SUBSTATE     C850_U8(0x0CE6CA9D)  /* 0 = normal play, non-zero = scratch/brake/ramp */
 #define C850_PITCH              C850_S16(0x0CE6CA50) /* pitch, 1/100 % (FUN_0C0D9B44) [emu] */
 #define C850_PITCH_WIDE         C850_U8(0x0CE6CA4C)  /* WIDE scale flag for C850_PITCH */
 
@@ -170,6 +172,8 @@ static inline s32 c850_effective_pitch(void)
 #define C850_PCM_READ_PTR       C850_U32(0x0C7F6470) /* next block the IRQ7 feeder plays */
 #define C850_PCM_BLOCK_BYTES    0x150u               /* one DSPDREQ: 84 stereo samples, 1.9 ms */
 #define C850_BLOCKS_PER_FRAME   7u                   /* 0x930 = 7 x 0x150 */
+#define C850_AUDIO_STATE        C850_U8(0x0C7F6627)  /* 3 = play, 4 = CDJ pause stutter, 5 = ready, 6 = cue */
+#define C850_AUDIO_REVERSE      C850_U8(0x0C7F666C)  /* 0 = forward, 1 = reverse */
 
 /* ---- Forward loop-out test of the IRQ7 feeder (payload/common/c850_loop_out.c) ----
  * Pool 0x0C07730C -> c850_loop_out_isr: loop_roll_out_hook, quant_loops_out_hook,
@@ -271,6 +275,9 @@ int c850_ring_jump(u32 pos_block);     /* 1 = read pointer moved there (in the r
 #define c850_bpm_lock_cmd              C850_FN(0x0C0D1F14, u32, (u32 cmd, u32 a, u32 b))
 #define c850_bpm_lock_recalc           C850_FN(0x0C0D1CE6, u32, (void))
 #define c850_tempo_fader_to_pitch      C850_FN(0x0C0D9B44, u32, (void))
+/* IRQ mask/restore (sets SR.IMASK = 15, returns old SR; restores SR) */
+#define c850_irq_save                  C850_FN(0x0C0C688A, u32, (void))
+#define c850_irq_restore               C850_FN(0x0C0C6894, void, (u32 sr))
 
 /* ---- Service-mode gate (docs/cdj850-modding.md, "Service mode gate") ----
  * Nonzero while the deck is in a power-on firmware-update mode (USB/CD
