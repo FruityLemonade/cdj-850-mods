@@ -24,8 +24,45 @@
 
 #define LO_STOCK_OUT_REACHED C850_FN(0x0C0158D4, int, (int sector, u32 out, int z))
 #define LO_CLEAR_SEGMENTS    C850_FN(0x0C015B18, void, (void))
+#define LO_REQUEST_OUT       C850_FN(0x0C00A4CC, int, (u32 frame, int z))
 #define LO_SEG_SOURCE        C850_U32(0x0C7F677C)   /* block source while loop segments exist */
+#define LO_RESIZE_COUNT      C850_U8(0x0C7F66F8)    /* FUN_0C00A4CC forces reset past 0x1e */
 #define LO_BEHIND_MAX        1000u                  /* played sectors the ring keeps (<= 1001) */
+
+u32 quant_loops_resize_adjust(u32 frame) __attribute__((weak, noinline));
+u32 quant_loops_resize_adjust(u32 frame)
+{
+    return frame;
+}
+
+/* Pool 0x0C0E62BC (FUN_0C00A4CC) in auto_beat_loop_set's state-4 resize sender.
+ * Doubles and first-half halvings (play_frame < new_out) suppress stock's
+ * unconditional reset to loop_in so playback continues smoothly; halvings
+ * past new_out (play_frame >= new_out) immediately jump back to loop_in. */
+int c850_resize_req(u32 frame, int z)
+{
+    u32 in = C850_LOOP_IN_FRAME;
+
+    frame = quant_loops_resize_adjust(frame);
+    if (C850_IS_USB_MODE == 1u && C850_LOOP_ACTIVE == 1u &&
+        C850_PLAYER_STATE == C850_STATE_LOOPING && frame > in) {
+        u32 play = C850_PLAY_FRAME;
+        if (play < frame) {
+            int r;
+            C850_PLAY_FRAME = in;
+            LO_RESIZE_COUNT = 0u;
+            r = LO_REQUEST_OUT(frame, z);
+            if (C850_PLAY_FRAME == in)
+                C850_PLAY_FRAME = play;
+            return r;
+        }
+        if (play <= in + 1u) {
+            LO_RESIZE_COUNT = 0x1Fu;
+            return LO_REQUEST_OUT(frame, z);
+        }
+    }
+    return LO_REQUEST_OUT(frame, z);
+}
 
 int loop_roll_out_hook(int sector, u32 out, int z) __attribute__((weak, noinline));
 int loop_roll_out_hook(int sector, u32 out, int z)

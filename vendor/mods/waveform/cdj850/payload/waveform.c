@@ -180,9 +180,113 @@ static void wf_toggle_red_col(volatile u8 *frame, u32 col)
     frame[2u + col / 8u] ^= (u8)(0x80u >> (col % 8u));
 }
 
+static void wf_mark_point(volatile u8 *frame, s32 base, s32 step, u32 frame_pos)
+{
+    s32 p = (s32)frame_pos;
+
+    if (p >= base && p < base + WF_COLS * step)
+        wf_set_red_col(frame, (u32)((p - base) / step));
+}
+
+static void wf_mark_span(volatile u8 *frame, s32 base, s32 step, u32 in_f, u32 out_f)
+{
+    s32 in_s = (s32)in_f;
+    s32 out_s = (s32)out_f;
+    s32 c0, c1, col;
+
+    if (out_f <= in_f || out_s <= base)
+        return;
+    c0 = (in_s <= base) ? 0 : (in_s - base) / step;
+    c1 = (out_s - 1 - base) / step;
+    if (c1 >= WF_COLS)
+        c1 = WF_COLS - 1;
+    for (col = c0; col <= c1 && col < WF_COLS; col++)
+        wf_set_red_col(frame, (u32)col);
+}
+
+static u32 wf_pcpt_to_frame(u32 t, u16 div)
+{
+    if (div == 0u)
+        return 0u;
+    if (t <= 50000000u)
+        return (t * 75u) / (u32)div;
+    return (t / (u32)div) * 75u;
+}
+
+static void wf_mark_cues(volatile u8 *frame, s32 base, s32 step)
+{
+    u32 cnt, i, ctx;
+
+    if (C850_IS_USB_MODE != 1u)
+        return;
+    cnt = C850_MEMCUE_COUNT;
+    if (cnt > 10u)
+        cnt = 10u;
+    for (i = 0u; i < cnt; i++) {
+        const volatile u32 *e = (const volatile u32 *)(C850_MEMCUE_LIST + i * 0x24u);
+        if (e[0] == 0xFFFFFFFFu)
+            break;
+        if ((e[0] & 1u) && e[4] > e[3])
+            wf_mark_span(frame, base, step, e[3], e[4]);
+        else
+            wf_mark_point(frame, base, step, e[3]);
+    }
+    ctx = C850_ANLZ_CTX;
+    if (ctx && (ctx & 3u) == 0u &&
+        C850_U32(ctx) == 0xBFA14C7Eu && C850_U32(ctx + 0x1414u) == 0x9768A153u) {
+        for (i = 1u; i <= 3u; i++) {
+            u32 slot = ctx + 0xF58u + i * 0x38u;
+            u16 div;
+            u32 in_f;
+
+            if (C850_U16(slot + 0x0Eu) == 0u)
+                continue;
+            div = C850_U16(slot + 0x1Eu);
+            if (div == 0u)
+                continue;
+            in_f = wf_pcpt_to_frame(C850_U32(slot + 0x20u), div);
+            if (C850_U8(slot + 0x1Cu) == 2u) {
+                u32 loop_t = C850_U32(slot + 0x24u);
+                u32 out_f = (loop_t != 0xFFFFFFFFu) ? wf_pcpt_to_frame(loop_t, div) : 0u;
+                if (out_f > in_f)
+                    wf_mark_span(frame, base, step, in_f, out_f);
+                else
+                    wf_mark_point(frame, base, step, in_f);
+            } else {
+                wf_mark_point(frame, base, step, in_f);
+            }
+        }
+    }
+}
+
+/* Pool 0x0C063128 (display_stage_active_cue_column, 0x0C0642CC): on close and
+ * medium zoom, clear the whole-track white cue column (S[0x17] = 0x0C9D0AEF)
+ * and place the active cue point at its zoomed waveform column instead. */
+void waveform_cue_column(void)
+{
+    C850_FN(0x0C0642CC, void, (void))();
+    if (waveform_on && !c850_ui_flag(C850_UI_FLAG_WAVEFORM_OFF) &&
+        wf_was_zoomed && waveform_zoom < WF_ZOOM_OVERVIEW &&
+        C850_DISPLAY_MODE == WF_MODE_TITLE) {
+        u8 st = C850_PLAYER_STATE;
+
+        C850_U8(0x0C9D0AEFu) = 0u;
+        if (st != 0u && st != 2u && st != 10u && st != 14u && C850_CUE_OR_LOOP_EXISTS != 0u) {
+            u32 cue_f = C850_U8(0x0CE6D140u) ? C850_U32(0x0CE65C18u) : C850_LOOP_IN_FRAME;
+            s32 playhead_col = wf_playhead_column(wf_playhead_pos());
+            s32 step = (waveform_zoom == WF_ZOOM_CLOSE) ? WF_STEP_CLOSE : WF_STEP_MEDIUM;
+            s32 base = (s32)C850_PLAY_FRAME - playhead_col * step;
+            s32 p = (s32)cue_f;
+
+            if (p >= base && p < base + WF_COLS * step)
+                C850_U8(0x0C9D0AEFu) = (u8)(((p - base) / step) + 1);
+        }
+    }
+}
+
 /* On close and medium zoom, replace the stock 0x60 red memory-cue bitmap with
- * a single red tick at the playhead, or a red bar for an active loop with the
- * playhead toggled off inside the bar. Overview zoom leaves 0x60 untouched. */
+ * memory cues, hot cues A-C, a pending loop-in marker, any active loop bar,
+ * and the playhead tick toggled at the playhead column. Overview leaves 0x60 untouched. */
 int waveform_center_marker(void)
 {
     u32 before = WF_TX_LAST;
@@ -197,31 +301,20 @@ int waveform_center_marker(void)
         volatile u8 *frame = (volatile u8 *)(WF_TX_FRAMES + last * 16u);
         if (frame[0] == 0x60u) {
             s32 playhead_col = wf_playhead_column(wf_playhead_pos());
+            s32 step = (zoom == WF_ZOOM_CLOSE) ? WF_STEP_CLOSE : WF_STEP_MEDIUM;
+            s32 base = (s32)C850_PLAY_FRAME - playhead_col * step;
             u32 i;
 
             for (i = 2u; i <= 14u; i++)
                 frame[i] = 0u;
 
+            wf_mark_cues(frame, base, step);
             if (C850_LOOP_ACTIVE == 1u) {
                 u32 in_f = C850_LOOP_IN_FRAME;
-                u32 out_f = wf_effective_loop_out(in_f);
-                if (out_f > in_f) {
-                    s32 step = (zoom == WF_ZOOM_CLOSE) ? WF_STEP_CLOSE : WF_STEP_MEDIUM;
-                    s32 base = (s32)C850_PLAY_FRAME - playhead_col * step;
-                    s32 in_s = (s32)in_f;
-                    s32 out_s = (s32)out_f;
-
-                    if (out_s > base) {
-                        s32 c0 = (in_s <= base) ? 0 : (in_s - base) / step;
-                        s32 c1 = (out_s - 1 - base) / step;
-                        s32 col;
-
-                        if (c1 >= WF_COLS)
-                            c1 = WF_COLS - 1;
-                        for (col = c0; col <= c1 && col < WF_COLS; col++)
-                            wf_set_red_col(frame, (u32)col);
-                    }
-                }
+                wf_mark_span(frame, base, step, in_f, wf_effective_loop_out(in_f));
+            } else if (C850_CUE_OR_LOOP_EXISTS == 1u &&
+                       C850_U8(0x0CE6D0EEu) == 0u && C850_U8(0x0CE6D0F0u) == 1u) {
+                wf_mark_point(frame, base, step, C850_LOOP_IN_FRAME);
             }
             wf_toggle_red_col(frame, (u32)playhead_col);
         }

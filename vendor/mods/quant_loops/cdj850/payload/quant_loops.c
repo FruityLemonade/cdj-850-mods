@@ -103,22 +103,21 @@ static int ql_on(void)
 
 /* Called by c850_ui_keys (the shared filter on pool 0x0C0ED038) with the
  * true held words k, the new presses p, and the keys taken so far. BEAT
- * SELECT + LOOP IN switches quantize; LOOP IN alone stays stock. */
+ * SELECT + LOOP IN arms/disarms quantize in RAM (zero drive/flash writes);
+ * disabled when UTILITY QUANTIZE is OFF. */
 static void quant_loops_key_filter(const u16 *k, const u16 *p, u16 *own)
 {
     int on;
 
-    if (!quant_loops_on || !c850_ui_shift(k, p, own, C850_K0_LOOP_IN))
+    if (!quant_loops_on || c850_ui_flag(C850_UI_FLAG_QUANT_OFF))
         return;
-    on = !c850_ui_quantize();
-    if (c850_ui_set_flag(C850_UI_FLAG_QUANT_OFF, !on)) {
-        quant_loops_toggles++;
-        if (!on)
-            qb_armed = 0;            /* quantize off: the loop wraps stock from now on */
-    } else {
-        quant_loops_toggle_failed++;
-        on = !on;
-    }
+    if (!c850_ui_shift(k, p, own, C850_K0_LOOP_IN))
+        return;
+    on = !c850_ui_quantize_armed();
+    c850_ui_set_quantize_armed(on);
+    quant_loops_toggles++;
+    if (!on)
+        qb_armed = 0;                /* quantize off: the loop wraps stock from now on */
     c850_ui_flash(on ? "QUANTIZE ON" : "QUANTIZE OFF");
 }
 C850_UI_KEY_FILTER(quant_loops_key_filter);
@@ -937,12 +936,14 @@ static __attribute__((noinline)) u32 ql_resize(u32 frame)
  * audio cmd 6 (pool 0x0C0E62CC) only when it returns 1, with *D1C0. The
  * resize gets the block loop here, so the request and D1C0 carry its frame
  * whether the send follows or not. */
-#define QL_REQUEST_OUT      C850_FN(0x0C00A4CC, int, (u32 out, int z))
+u32 quant_loops_resize_adjust(u32 frame)
+{
+    return ql_resize(frame);
+}
 
 int quant_loops_resize_req(u32 frame, int z)
 {
-    frame = ql_resize(frame);
-    return QL_REQUEST_OUT(frame, z);
+    return c850_resize_req(frame, z);
 }
 
 /* ---- redirect entry points ---- */
@@ -1219,14 +1220,37 @@ void quant_loops_loop_tick(void)
         qb_armed = 0;
 }
 
-/* UTILITY QUANTIZE: the quantize value, 1 BEAT -> 1/2 BEAT -> 1/4 BEAT.
- * Quantize on/off stays on BEAT SELECT + LOOP IN. Kept in the file/RAM
- * flags (bits 16..17, c850_ui.h): it travels with the stick. */
+/* UTILITY QUANTIZE (ON/OFF) and QUANTIZE SIZE (1 BEAT / 1/2 BEAT / 1/4 BEAT).
+ * Both are persisted to the stick/flash (c850_ui.h). When QUANTIZE is OFF,
+ * QUANTIZE SIZE is hidden and BEAT SELECT + LOOP IN cannot arm quantize. */
+static const char *ql_on_utility_value(void)
+{
+    if (!quant_loops_on)
+        return 0;
+    return c850_ui_flag(C850_UI_FLAG_QUANT_OFF) ? "OFF" : "ON";
+}
+
+static void ql_on_utility_select(void)
+{
+    int off = !c850_ui_flag(C850_UI_FLAG_QUANT_OFF);
+
+    c850_ui_set_flag(C850_UI_FLAG_QUANT_OFF, off);
+    if (off)
+        qb_armed = 0;
+    else
+        c850_ui_set_quantize_armed(1);
+}
+
+static const c850_ui_utility_item ql_on_utility_item = {
+    14u, "QUANTIZE", ql_on_utility_value, ql_on_utility_select,
+};
+C850_UI_UTILITY_ITEM(ql_on_utility_item);
+
 static const char *ql_q_utility_value(void)
 {
     u32 d;
 
-    if (!quant_loops_on)
+    if (!quant_loops_on || c850_ui_flag(C850_UI_FLAG_QUANT_OFF))
         return 0;
     d = c850_ui_quant_div();
     return d == 4u ? "1/4 BEAT" : d == 2u ? "1/2 BEAT" : "1 BEAT";
@@ -1241,6 +1265,6 @@ static void ql_q_utility_select(void)
 }
 
 static const c850_ui_utility_item ql_q_utility_item = {
-    15u, "QUANTIZE", ql_q_utility_value, ql_q_utility_select,
+    15u, "QUANTIZE SIZE", ql_q_utility_value, ql_q_utility_select,
 };
 C850_UI_UTILITY_ITEM(ql_q_utility_item);

@@ -119,7 +119,7 @@ MODS = {
     'quant_loops_resize_req': _redirect(
         'quant loops: a resize inside a loop requests the block loop of the new length',
         [0xE603, 0xE500, 0x2160, 0xD6A2, 0xD2A3, 0x420B, 0x6462, 0x600C], 4,
-        0x0C00A4CC, 'quant_loops_resize_req'),
+        0x0C00A4CC, 'c850_resize_req'),
     # 0x0C0E5DA6: cmp/eq #6,r0; bt; mov.l @(0x0C0E5FD0),r4; jsr/n @r4; mov.l @(0x0C7F6468),r14;
     # mov.l @(FUN_0C00586C),r5; jsr @r5; mov.w @r14,r4
     'quant_loops_auto_keep': _redirect(

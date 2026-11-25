@@ -46,7 +46,7 @@ ALWAYS_ON_LABELS = [
     "Auto standby (20 / 40 / 60 / 120 min, set in UTILITY)",
 ]
 SWITCHABLE_LABELS = [
-    "Quantized loops (UTILITY: QUANTIZE)",
+    "Quantized loops (UTILITY: QUANTIZE, QUANTIZE SIZE + BEAT SELECT + LOOP IN)",
     "BPM decimals in INFO (UTILITY: BPM DECIMALS)",
     "BPM lock, ±100% (UTILITY: BPM LOCK)",
     "Phase meter on INFO page 2 (UTILITY: PHASE METER)",
@@ -54,9 +54,9 @@ SWITCHABLE_LABELS = [
     "Browse played markers & BPM/key sort (UTILITY: BROWSE MODS)",
 ]
 KNOWN_ISSUES_LABELS = [
-    "Hot cues on BEAT 1/2/4 (BEAT SELECT + RELOOP)",
-    "Zoomed scrolling waveform (UTILITY: WAVEFORM)",
-    "Slip mode: loop roll, reverse, scratch & pause (BEAT SELECT + LOOP OUT)",
+    "Hot cues on BEAT 1/2/4 (UTILITY: HOT CUES + BEAT SELECT + RELOOP)",
+    "Zoomed scrolling waveform (UTILITY: WAVEFORM, WAVE PLAYHEAD)",
+    "Slip mode: loop roll, reverse, scratch & pause (UTILITY: SLIP MODE + BEAT SELECT + LOOP OUT)",
 ]
 
 BUILDS = {

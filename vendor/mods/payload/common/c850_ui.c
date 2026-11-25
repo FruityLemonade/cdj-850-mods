@@ -310,9 +310,38 @@ int c850_ui_set_flag(u32 flag, int on)
     return c850_ui_set_flags(flag, on ? flag : 0u);
 }
 
+/* RAM-only during-performance arming state (never persisted to flash/USB). */
+static u8 ui_quantize_armed = 1u;
+static u8 ui_hot_cues_armed;
+
 int c850_ui_quantize(void)
 {
-    return !c850_ui_flag(C850_UI_FLAG_QUANT_OFF);
+    return !c850_ui_flag(C850_UI_FLAG_QUANT_OFF) && ui_quantize_armed != 0u;
+}
+
+int c850_ui_quantize_armed(void)
+{
+    return ui_quantize_armed != 0u;
+}
+
+void c850_ui_set_quantize_armed(int on)
+{
+    ui_quantize_armed = on ? 1u : 0u;
+}
+
+int c850_ui_hot_cues_active(void)
+{
+    return !c850_ui_flag(C850_UI_FLAG_HOT_CUES_OFF) && ui_hot_cues_armed != 0u;
+}
+
+int c850_ui_hot_cues_armed(void)
+{
+    return ui_hot_cues_armed != 0u;
+}
+
+void c850_ui_set_hot_cues_armed(int on)
+{
+    ui_hot_cues_armed = on ? 1u : 0u;
 }
 
 u32 c850_ui_standby_index(void)
@@ -481,9 +510,10 @@ void c850_ui_utility_draw(void)
 
 static const char *volatile fl_text;
 static volatile u32 fl_req;
+static volatile u8 fl_hold_req;
 static u32 fl_seen, fl_until;
 static u8 fl_msg[UI_TEXT_MAX];       /* the message, copied when the request is seen */
-static u8 fl_mlen, fl_active;
+static u8 fl_mlen, fl_active, fl_hold;
 static u8 fl_wrote[UI_ROWS];         /* 1: the row holds what we wrote */
 static u8 fl_wlen[UI_ROWS];
 static u8 fl_wtext[UI_ROWS][UI_TEXT_MAX];   /* what we wrote (a copy: the message may change) */
@@ -496,7 +526,22 @@ volatile u32 c850_ui_flash_restores; /* rows given back */
 
 void c850_ui_flash(const char *text)
 {
+    fl_hold_req = 0u;
     fl_text = text;
+    fl_req++;
+}
+
+void c850_ui_flash_hold(const char *text)
+{
+    fl_hold_req = 1u;
+    fl_text = text;
+    fl_req++;
+}
+
+void c850_ui_flash_clear(void)
+{
+    fl_hold_req = 0u;
+    fl_text = 0;
     fl_req++;
 }
 
@@ -567,6 +612,7 @@ void c850_ui_flash_hook(u32 *regs, u32 *sp)
         u32 n = 0;
 
         fl_seen = req;
+        fl_hold = fl_hold_req;
         if (t) {
             while (n < UI_TEXT_MAX && t[n]) {
                 fl_msg[n] = t[n];
@@ -576,11 +622,15 @@ void c850_ui_flash_hook(u32 *regs, u32 *sp)
             fl_until = now + C850_UI_FLASH_MS;
             fl_active = 1;
             c850_ui_flashes++;
+        } else {
+            for (r = 0; r < UI_ROWS; r++)
+                ui_unflash(r);
+            fl_active = 0;
         }
     }
     if (!fl_active)
         return;
-    if ((s32)(now - fl_until) >= 0) {
+    if (!fl_hold && (s32)(now - fl_until) >= 0) {
         for (r = 0; r < UI_ROWS; r++)
             ui_unflash(r);
         fl_active = 0;

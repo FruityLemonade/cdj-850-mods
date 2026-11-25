@@ -73,10 +73,17 @@ MODS = {
         old=0x0C0C45B4, routine='payload:c850_ui_usb_mount',
     ),
     'waveform_center_marker': PoolRedirect(
-        what='Waveform: mark playhead and active loop span on the red cue strip',
+        what='Waveform: mark playhead, cues, hotcues, pending loop-in, and loops on the red strip',
         target='main', fw_versions=('1.13',),
         anchor=Anchor(sig=[0x430B, 0x2610, 0xD33A, 0x434B,
                            0xD435, 0x6042, 0xE700], index=2, literal=True),
         old=0x0C0664A8, routine='payload:waveform_center_marker',
+    ),
+    'waveform_cue_column': PoolRedirect(
+        what='Waveform: clear whole-track cue bar and show zoomed active cue on the waveform',
+        target='main', fw_versions=('1.13',),
+        anchor=Anchor(sig=[0xD350, 0x434B, 0xD350, 0x434B, 0xD350, 0x434B, 0xB005, 0x0009],
+                      index=2, literal=True),
+        old=0x0C0642CC, routine='payload:waveform_cue_column',
     ),
 }

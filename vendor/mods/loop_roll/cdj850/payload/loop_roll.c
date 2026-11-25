@@ -33,6 +33,8 @@
 #define SLIP_CLOCK_DEN       400000u                /* exact 525/10000000 = 21/400000 blocks/ms */
 #define SLIP_DT_MAX          1000u                  /* cap dt (ms) to keep dt * 21 * 20000 < 2^32 */
 #define SLIP_LAND_TIMEOUT    250u                   /* player cycles (~3 s) waiting for normal play */
+#define SLIP_REV_HOLD_MS     1500u                  /* hold REV >= 1.5 s for momentary slip-reverse */
+#define LR_STAGE_JOG_FLAGS   C850_FN(0x0C064D10, int, (void))
 
 enum { LR_IDLE, LR_ROLL, LR_JUMP, LR_JUMPED, LR_MISS, LR_EXIT };
 enum { SLIP_IDLE, SLIP_ACTIVE, SLIP_LAND };
@@ -43,18 +45,78 @@ static volatile u8 lr_counting;
 static volatile u32 lr_pos;          /* un-looped position of the next block, in blocks */
 static volatile u32 lr_target;       /* LR_JUMP: land when lr_pos reaches it */
 static u32 lr_seen;                  /* loop_roll_isr_calls at the last tick (stall check) */
-static u8 lr_mode;                   /* slip mode on */
+static u8 lr_mode;                   /* slip mode armed in RAM */
 static u8 lr_reloop_down, lr_wait;
+static u8 lr_rev_down, lr_rev_pending; /* synthetic REV rising edge on 1.5s hold release */
+static u8 rev_held, rev_hold_slip;
+static u32 rev_hold_t0;
+static u8 rev_prov_active;
+static u32 rev_prov_pos, rev_prov_start_pos, rev_prov_rem, rev_prov_tick, rev_prov_len;
 
 static u8 slip_phase;
 static u8 slip_kind;
 static u8 slip_was_playing;
+static u8 slip_momentary;            /* 1: active from 1.5s REV hold even with lr_mode == 0 */
 static u16 slip_land_wait;
 static u32 slip_pos;                 /* shadow playhead, whole blocks */
 static u32 slip_rem;                 /* fractional remainder mod SLIP_CLOCK_DEN */
 static u32 slip_last_tick;
 static u32 slip_target;
 static u32 slip_track_len;
+
+static int slip_enabled(void)
+{
+    return !c850_ui_flag(C850_UI_FLAG_LOOP_ROLL_OFF);
+}
+
+static const char *lr_utility_value(void)
+{
+    return c850_ui_flag(C850_UI_FLAG_LOOP_ROLL_OFF) ? "OFF" : "ON";
+}
+
+static void lr_utility_select(void)
+{
+    int off = !c850_ui_flag(C850_UI_FLAG_LOOP_ROLL_OFF);
+
+    c850_ui_set_flag(C850_UI_FLAG_LOOP_ROLL_OFF, off);
+    if (off) {
+        lr_mode = 0;
+        rev_held = 0;
+        rev_hold_slip = 0;
+        lr_rev_pending = 0;
+        rev_prov_active = 0;
+        slip_momentary = 0;
+        if (slip_phase != SLIP_IDLE) {
+            slip_phase = SLIP_IDLE;
+        }
+    }
+}
+
+static const c850_ui_utility_item lr_utility_item = {
+    85u, "SLIP MODE", lr_utility_value, lr_utility_select,
+};
+C850_UI_UTILITY_ITEM(lr_utility_item);
+
+/* Pool 0x0C063124 (display_stage_jog_flags, 0x0C064D10): flash the jogwheel
+ * VINYL indicator (bits 0x18 of S[1] and S[0xF]) while slip mode is active. */
+int loop_roll_jog_flags(void)
+{
+    int r = LR_STAGE_JOG_FLAGS();
+
+    if (slip_enabled() && (lr_mode || rev_hold_slip || slip_phase != SLIP_IDLE || lr_phase != LR_IDLE)) {
+        u32 on = ((C850_TICK_MS / 300u) & 1u) != 0u;
+        volatile u8 *s = (volatile u8 *)C850_STATUS_STAGING;
+
+        if (on) {
+            s[1] |= 0x18u;
+            s[0x0F] |= 0x18u;
+        } else {
+            s[1] &= (u8)~0x18u;
+            s[0x0F] &= (u8)~0x18u;
+        }
+    }
+    return r;
+}
 
 /* evidence for tests */
 volatile u32 loop_roll_rolls;        /* rolls started (beat press in roll mode) */
@@ -159,18 +221,35 @@ static int lr_looping(void)
 /* Shared key filter (c850_ui_keys, pool 0x0C0ED038), playertask, on key changes. */
 static void loop_roll_key_filter(const u16 *k, const u16 *p, u16 *own)
 {
+    if (!slip_enabled())
+        return;
     if (c850_ui_shift(k, p, own, C850_K0_LOOP_OUT)) {
         lr_mode = !lr_mode;
         loop_roll_toggles++;
-        if (!lr_mode && slip_phase != SLIP_IDLE) {
+        if (!lr_mode && slip_phase != SLIP_IDLE && !slip_momentary) {
             slip_phase = SLIP_IDLE;
             loop_roll_slip_aborts++;
         }
         c850_ui_flash(lr_mode ? "SLIP ON" : "SLIP OFF");
         return;
     }
+    if ((p[0] & C850_K0_REV) && !(k[0] & C850_K0_BEAT_SELECT) &&
+        C850_IS_USB_MODE == 1u && C850_PLAYER_STATE == C850_STATE_PLAYING &&
+        C850_AUDIO_REVERSE == 0u && C850_AUDIO_STATE == 3u) {
+        rev_held = 1u;
+        rev_hold_t0 = C850_TICK_MS;
+        rev_hold_slip = 0u;
+        if (!lr_mode && lr_phase == LR_IDLE && slip_phase == SLIP_IDLE) {
+            rev_prov_pos = c850_read_pos();
+            rev_prov_start_pos = rev_prov_pos;
+            rev_prov_rem = 0u;
+            rev_prov_tick = rev_hold_t0;
+            rev_prov_len = C850_TRACK_LENGTH;
+            rev_prov_active = 1u;
+        }
+    }
     if (lr_phase == LR_IDLE) {
-        int hc_active = c850_ui_flag(C850_UI_FLAG_HOT_CUES);
+        int hc_active = c850_ui_hot_cues_active();
         if (lr_mode && slip_phase == SLIP_IDLE && (p[1] & LR_BEATS) && !hc_active &&
             C850_IS_USB_MODE == 1 && C850_PLAYER_STATE == C850_STATE_PLAYING) {
             lr_counting = 0;
@@ -200,16 +279,16 @@ static void loop_roll_key_filter(const u16 *k, const u16 *p, u16 *own)
 }
 C850_UI_KEY_FILTER(loop_roll_key_filter);
 
-/* Advance the tick-integrated shadow playhead at the tempo-fader speed.
+/* Advance a tick-integrated shadow playhead at the tempo-fader speed.
  * 44100 Hz / 84 samples = 525 blocks/s; 525 * factor / 1e7 = 21 * factor / 400000. */
-static void slip_advance(void)
+static void slip_advance_clock(u32 *pos, u32 *rem, u32 *last_tick)
 {
     u32 now = C850_TICK_MS;
-    u32 dt = now - slip_last_tick;
+    u32 dt = now - *last_tick;
     s32 p = c850_effective_pitch();
     u32 factor, add;
 
-    slip_last_tick = now;
+    *last_tick = now;
     if (dt == 0u)
         return;
     if (dt > SLIP_DT_MAX)
@@ -220,9 +299,14 @@ static void slip_advance(void)
         p = 10000;
     factor = (u32)(10000 + p);
     add = dt * 21u * factor;
-    slip_rem += add;
-    slip_pos += slip_rem / SLIP_CLOCK_DEN;
-    slip_rem %= SLIP_CLOCK_DEN;
+    *rem += add;
+    *pos += *rem / SLIP_CLOCK_DEN;
+    *rem %= SLIP_CLOCK_DEN;
+}
+
+static void slip_advance(void)
+{
+    slip_advance_clock(&slip_pos, &slip_rem, &slip_last_tick);
 }
 
 static int slip_ptr_aligned(void)
@@ -319,12 +403,85 @@ static void slip_try_land(void)
             int r = slip_try_jump(slip_pos);
             if (r >= 0) {
                 slip_phase = SLIP_IDLE;
+                slip_momentary = 0u;
                 slip_was_playing = 1;
             }
         }
     } else if (++slip_land_wait > SLIP_LAND_TIMEOUT) {
         slip_phase = SLIP_IDLE;
+        slip_momentary = 0u;
         loop_roll_slip_aborts++;
+    }
+}
+
+static void slip_rev_hold_tick(void)
+{
+    if (lr_rev_down) {
+        lr_rev_down = 0u;
+        if (!(c850_ui_kt[0] & C850_K0_REV))
+            C850_K0 &= ~C850_K0_REV;
+    }
+    if (!slip_enabled()) {
+        rev_held = 0u;
+        rev_hold_slip = 0u;
+        lr_rev_pending = 0u;
+        rev_prov_active = 0u;
+        return;
+    }
+    if (lr_rev_pending && !(C850_K0_PREV & C850_K0_REV)) {
+        lr_rev_pending = 0u;
+        if (C850_AUDIO_REVERSE != 0u && C850_PLAYER_STATE == C850_STATE_PLAYING) {
+            C850_K0 |= C850_K0_REV;
+            lr_rev_down = 1u;
+        }
+    }
+    if (rev_prov_active) {
+        if (C850_IS_USB_MODE != 1u || C850_TRACK_LENGTH != rev_prov_len ||
+            C850_PLAYER_STATE != C850_STATE_PLAYING) {
+            rev_prov_active = 0u;
+        } else {
+            slip_advance_clock(&rev_prov_pos, &rev_prov_rem, &rev_prov_tick);
+        }
+    }
+    if (!rev_held)
+        return;
+    if (c850_ui_kt[0] & C850_K0_REV) {
+        lr_rev_pending = 0u;
+        if (!rev_hold_slip && (u32)(C850_TICK_MS - rev_hold_t0) >= SLIP_REV_HOLD_MS) {
+            if (C850_IS_USB_MODE == 1u && C850_PLAYER_STATE == C850_STATE_PLAYING &&
+                C850_AUDIO_REVERSE != 0u) {
+                rev_hold_slip = 1u;
+                if (!lr_mode && rev_prov_active && slip_phase == SLIP_IDLE && lr_phase == LR_IDLE) {
+                    slip_pos = rev_prov_pos;
+                    slip_rem = rev_prov_rem;
+                    slip_last_tick = rev_prov_tick;
+                    slip_track_len = rev_prov_len;
+                    slip_kind = SLIP_REV;
+                    slip_phase = SLIP_ACTIVE;
+                    slip_momentary = 1u;
+                    loop_roll_slip_kind = SLIP_REV;
+                    loop_roll_slip_start_pos = rev_prov_start_pos;
+                    loop_roll_slip_start_tick = rev_hold_t0;
+                    loop_roll_slip_starts++;
+                    slip_was_playing = 0u;
+                }
+                rev_prov_active = 0u;
+            }
+        }
+    } else {
+        rev_held = 0u;
+        rev_prov_active = 0u;
+        if (rev_hold_slip) {
+            rev_hold_slip = 0u;
+            if (C850_AUDIO_REVERSE != 0u && C850_PLAYER_STATE == C850_STATE_PLAYING) {
+                if (!(C850_K0_PREV & C850_K0_REV)) {
+                    C850_K0 |= C850_K0_REV;
+                    lr_rev_down = 1u;
+                } else {
+                    lr_rev_pending = 1u;
+                }
+            }
+        }
     }
 }
 
@@ -335,7 +492,7 @@ static void slip_tick(void)
                   !(C850_JOG_MODE_VINYL == 1u && C850_JOG_TOUCHED == 1u));
 
     if (slip_phase == SLIP_IDLE) {
-        if (lr_mode && slip_was_playing && C850_IS_USB_MODE == 1u) {
+        if (slip_enabled() && lr_mode && slip_was_playing && C850_IS_USB_MODE == 1u) {
             u8 kind = SLIP_NONE;
 
             if (C850_AUDIO_REVERSE != 0u && C850_PLAYER_STATE == C850_STATE_PLAYING)
@@ -353,6 +510,7 @@ static void slip_tick(void)
                 slip_track_len = C850_TRACK_LENGTH;
                 slip_kind = kind;
                 slip_phase = SLIP_ACTIVE;
+                slip_momentary = 0u;
                 loop_roll_slip_kind = kind;
                 loop_roll_slip_start_pos = slip_pos;
                 loop_roll_slip_start_tick = slip_last_tick;
@@ -365,9 +523,11 @@ static void slip_tick(void)
         return;
     }
 
-    if (!lr_mode || C850_IS_USB_MODE != 1u || C850_TRACK_LENGTH != slip_track_len ||
+    if (!slip_enabled() || (!lr_mode && !slip_momentary) || C850_IS_USB_MODE != 1u ||
+        C850_TRACK_LENGTH != slip_track_len ||
         (C850_PLAYER_STATE != C850_STATE_PLAYING && C850_PLAYER_STATE != C850_STATE_PAUSED_CDJ)) {
         slip_phase = SLIP_IDLE;
+        slip_momentary = 0u;
         slip_was_playing = 0;
         loop_roll_slip_aborts++;
         return;
@@ -447,12 +607,14 @@ static void loop_roll_tick(void)
         break;
     }
 
+    slip_rev_hold_tick();
     if (lr_phase == LR_IDLE) {
         slip_tick();
     } else {
         slip_was_playing = 0;
         if (slip_phase != SLIP_IDLE) {
             slip_phase = SLIP_IDLE;
+            slip_momentary = 0u;
             loop_roll_slip_aborts++;
         }
     }
