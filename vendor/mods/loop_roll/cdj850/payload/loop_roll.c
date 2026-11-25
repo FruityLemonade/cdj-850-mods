@@ -10,6 +10,10 @@
  *                           beat button while held resizes it (stock).
  *   all beat buttons up     playback lands where the track would be had it never
  *                           looped (the shadow playhead), then the loop is left.
+ *                           Quantize on (and a grid): the roll plays on to the
+ *                           next quantize point (UTILITY QUANTIZE: 1, 1/2 or 1/4
+ *                           beat) of the shadow and lands there; a beat press
+ *                           before that takes the roll back (and resizes it).
  *
  * Shadow playhead. The IRQ7 feeder plays one block of 84 stereo samples
  * (0x150 bytes, 1/7 of a CD frame) per DSPDREQ; while a loop plays it asks
@@ -41,12 +45,16 @@
 #define LR_BLOCKS            7u                     /* per sector */
 #define LR_BEHIND_MAX        1000u                  /* played sectors the ring keeps (<= 1001) */
 #define LR_BEATS             (C850_K1_BEAT1 | C850_K1_BEAT2 | C850_K1_BEAT4 | C850_K1_BEAT8)
+#define LR_LATE              10u                    /* blocks (19 ms): a point this far behind counts as reached */
+#define LR_STALL             50u                    /* player cycles (~0.6 s) without a feeder block: give up */
 
 enum { LR_IDLE, LR_ROLL, LR_JUMP, LR_JUMPED, LR_MISS, LR_EXIT };
 
 static volatile u8 lr_phase;
 static volatile u8 lr_counting;
 static volatile u32 lr_pos;          /* un-looped position of the next block, in blocks */
+static volatile u32 lr_target;       /* LR_JUMP: land when lr_pos reaches it */
+static u32 lr_seen;                  /* loop_roll_isr_calls at the last tick (stall check) */
 static u8 lr_mode;                   /* roll mode on */
 static u8 lr_reloop_down, lr_wait;
 
@@ -64,6 +72,20 @@ volatile u32 loop_roll_last_from;    /* read position (blocks) the last jump lef
 volatile u32 loop_roll_last_sector;
 volatile u32 loop_roll_start_tick;   /* 1 ms tick at the first counted block */
 volatile u32 loop_roll_jump_tick;    /* and at the landing */
+volatile u32 loop_roll_release_pos;  /* shadow (blocks) at the last release */
+volatile u32 loop_roll_quantized;    /* releases that waited for a quantize point */
+volatile u32 loop_roll_cancels;      /* beat presses that took a waiting release back */
+
+/* quant_loops' grid (strong when it is built): the first quantize point at or
+ * after pos - late, in blocks. Without quant_loops: no grid, land at once. */
+int quant_loops_roll_target(u32 pos_block, u32 late, u32 *target) __attribute__((weak, noinline));
+int quant_loops_roll_target(u32 pos_block, u32 late, u32 *target)
+{
+    (void)pos_block;
+    (void)late;
+    (void)target;
+    return 0;
+}
 
 static u32 lr_mod(s32 v)
 {
@@ -128,7 +150,7 @@ int loop_roll_isr(int sector, u32 out, int z)
             lr_pos++;
         }
         loop_roll_isr_calls++;
-        if (ph == LR_JUMP) {
+        if (ph == LR_JUMP && lr_pos >= lr_target) {
             if (lr_jump(lr_pos)) {
                 lr_phase = LR_JUMPED;
                 loop_roll_jump_tick = C850_TICK_MS;
@@ -152,8 +174,6 @@ static int lr_looping(void)
 /* Shared key filter (c850_ui_keys, pool 0x0C0ED038), playertask, on key changes. */
 static void loop_roll_key_filter(const u16 *k, const u16 *p, u16 *own)
 {
-    if (c850_ui_flag(C850_UI_FLAG_LOOP_ROLL_OFF))
-        return;
     if (c850_ui_shift(k, p, own, C850_K0_LOOP_OUT)) {
         lr_mode = !lr_mode;
         loop_roll_toggles++;
@@ -161,7 +181,7 @@ static void loop_roll_key_filter(const u16 *k, const u16 *p, u16 *own)
         return;
     }
     if (lr_phase == LR_IDLE) {
-        int hc_active = !c850_ui_flag(C850_UI_FLAG_HOT_CUES_OFF) && c850_ui_flag(C850_UI_FLAG_HOT_CUES);
+        int hc_active = c850_ui_flag(C850_UI_FLAG_HOT_CUES);
         if (lr_mode && (p[1] & LR_BEATS) && !hc_active &&
             C850_IS_USB_MODE == 1 && C850_PLAYER_STATE == C850_STATE_PLAYING) {
             lr_counting = 0;
@@ -169,10 +189,24 @@ static void loop_roll_key_filter(const u16 *k, const u16 *p, u16 *own)
             loop_roll_rolls++;
         }
     } else if (lr_phase == LR_ROLL && !(k[1] & LR_BEATS)) {
-        if (lr_counting && lr_looping())
-            lr_phase = LR_JUMP;      /* the ISR lands at its next block */
-        else
+        if (lr_counting && lr_looping()) {
+            u32 now = lr_pos, t = now;
+
+            loop_roll_release_pos = now;
+            if (quant_loops_roll_target(now, LR_LATE, &t) && t > now)
+                loop_roll_quantized++;
+            else
+                t = now;             /* no grid, quantize off, or a point just passed */
+            lr_target = t;           /* written before the phase the ISR reads */
+            lr_seen = loop_roll_isr_calls;
+            lr_wait = 0;
+            lr_phase = LR_JUMP;      /* the ISR lands at block t */
+        } else {
             lr_phase = LR_IDLE;      /* the press made no loop */
+        }
+    } else if (lr_phase == LR_JUMP && (p[1] & LR_BEATS)) {
+        lr_phase = LR_ROLL;          /* pressed again before the point: roll on (stock resizes) */
+        loop_roll_cancels++;
     }
 }
 C850_UI_KEY_FILTER(loop_roll_key_filter);
@@ -181,11 +215,6 @@ C850_UI_KEY_FILTER(loop_roll_key_filter);
  * before the key handlers. */
 static void loop_roll_tick(void)
 {
-    if (c850_ui_flag(C850_UI_FLAG_LOOP_ROLL_OFF)) {
-        lr_mode = 0;
-        if (lr_phase == LR_IDLE)
-            return;
-    }
     switch (lr_phase) {
     case LR_ROLL:
         if (lr_counting && !lr_looping()) {
@@ -193,13 +222,20 @@ static void loop_roll_tick(void)
             loop_roll_aborts++;
         }
         break;
-    case LR_JUMP:
-        if (!lr_looping() || ++lr_wait > 50) {   /* no feeder block for ~0.6 s */
+    case LR_JUMP: {
+        u32 c = loop_roll_isr_calls;
+
+        if (c != lr_seen) {          /* the feeder is counting: waiting for the point is fine */
+            lr_seen = c;
+            lr_wait = 0;
+        }
+        if (!lr_looping() || ++lr_wait > LR_STALL) {
             lr_phase = LR_IDLE;
             lr_wait = 0;
             loop_roll_aborts++;
         }
         break;
+    }
     case LR_JUMPED:
     case LR_MISS:
         lr_wait = 0;
@@ -224,22 +260,3 @@ static void loop_roll_tick(void)
     }
 }
 C850_UI_TICK_HOOK(loop_roll_tick);
-
-static const char *lr_utility_value(void)
-{
-    return c850_ui_flag(C850_UI_FLAG_LOOP_ROLL_OFF) ? "OFF" : "ON";
-}
-
-static void lr_utility_select(void)
-{
-    int off = !c850_ui_flag(C850_UI_FLAG_LOOP_ROLL_OFF);
-
-    if (off)
-        lr_mode = 0;
-    c850_ui_set_flag(C850_UI_FLAG_LOOP_ROLL_OFF, off);
-}
-
-static const c850_ui_utility_item lr_utility_item = {
-    100u, "LOOP ROLL", lr_utility_value, lr_utility_select,
-};
-C850_UI_UTILITY_ITEM(lr_utility_item);

@@ -98,17 +98,23 @@ typedef void c850_ui_tick_fn(void);
 #define C850_UI_FLAG_PHASE_METER_OFF  0x0100u
 #define C850_UI_FLAG_INFO_ORDER_OFF   0x0200u
 #define C850_UI_FLAG_BROWSE_OFF       0x0400u
-#define C850_UI_FLAG_HOT_CUES_OFF     0x0800u
+#define C850_UI_FLAG_HOT_CUES_OFF     0x0800u    /* retired: ignored (no UTILITY item turns it back) */
 #define C850_UI_FLAG_WAVEFORM_OFF     0x1000u
-#define C850_UI_FLAG_LOOP_ROLL_OFF    0x2000u
+#define C850_UI_FLAG_LOOP_ROLL_OFF    0x2000u    /* retired: ignored (no UTILITY item turns it back) */
 #define C850_UI_FLAG_STANDBY_SHIFT    14u
 #define C850_UI_FLAG_STANDBY_MASK     0xC000u    /* 0 = 20m, 1 = 40m, 2 = 60m, 3 = 120m */
+/* Quantize value (UTILITY QUANTIZE): the grid step of every quantized action
+ * (LOOP IN/OUT, the auto beat loop in, a new hot cue, the loop roll release).
+ * Bits 16..17 (file and RAM only): 0 = 1 beat (default), 1 = 1/2, 2 = 1/4. */
+#define C850_UI_FLAG_QVALUE_SHIFT     16u
+#define C850_UI_FLAG_QVALUE_MASK      0x30000u
 
 int c850_ui_flag(u32 flag);                     /* 1 = set */
 int c850_ui_set_flag(u32 flag, int on);         /* 1 = changed and saved, 0 = no room / no stick */
 int c850_ui_set_flags(u32 mask, u32 value);     /* atomic multi-flag update + single save */
 int c850_ui_quantize(void);                     /* 1 = grid snapping on */
 u32 c850_ui_standby_index(void);                /* 0..3 for 20/40/60/120 min */
+u32 c850_ui_quant_div(void);                    /* quantize value: 1, 2 or 4 points per beat */
 
 /* ---- settings file on the USB stick (pool 0x0C0C11E8) ---- */
 #define C850_UI_USB_MAGIC        "C850MODS"

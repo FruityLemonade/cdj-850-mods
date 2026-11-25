@@ -178,12 +178,14 @@ static int lr_grid_of(u32 in, struct lr_grid *g)
     return 1;
 }
 
-/* Out frame of a loop q sixteenths of a beat long on grid g. */
+/* Out frame of a loop q sixteenths of a beat long on grid g: in + the grid
+ * duration rounded once (as quant_loops makes its outs), so the first pass
+ * is within half a frame of the grid length. */
 u32 loop_resize_grid_out(const struct lr_grid *g, u32 q)
 {
-    if (g->s < 16u)
-        return loop_resize_ms_to_frames(loop_resize_grid_ms(g->i, g->s + q));
-    return g->in + loop_resize_ms_to_frames(loop_resize_grid_ms(g->i, q) - C850_GRID_TIME_MS(g->i));
+    u32 b = g->s < 16u ? g->s : 0u;
+
+    return g->in + loop_resize_ms_to_frames(loop_resize_grid_ms(g->i, b + q) - loop_resize_grid_ms(g->i, b));
 }
 
 /* Trailing zero bits (q's power of two: 64 = 4 beats beats 63). */

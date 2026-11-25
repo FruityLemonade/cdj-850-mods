@@ -145,28 +145,13 @@ u32 hot_cues_effective_out(u32 in)
 
 int hot_cues_mode(void)
 {
-    if (!hot_cues_on || c850_ui_flag(C850_UI_FLAG_HOT_CUES_OFF))
+    if (!hot_cues_on)
         return 0;
     return c850_ui_flag(C850_UI_FLAG_HOT_CUES);
 }
 
-static const char *hc_utility_value(void)
-{
-    if (!hot_cues_on)
-        return 0;
-    return c850_ui_flag(C850_UI_FLAG_HOT_CUES_OFF) ? "OFF" : "ON";
-}
-
-static void hc_utility_select(void)
-{
-    c850_ui_set_flag(C850_UI_FLAG_HOT_CUES_OFF,
-                     !c850_ui_flag(C850_UI_FLAG_HOT_CUES_OFF));
-}
-
-static const c850_ui_utility_item hc_utility_item = {
-    80u, "HOT CUES", hc_utility_value, hc_utility_select,
-};
-C850_UI_UTILITY_ITEM(hc_utility_item);
+/* No UTILITY item: hot-cue mode is BEAT SELECT + RELOOP (the old HOT CUES
+ * ON/OFF flag, C850_UI_FLAG_HOT_CUES_OFF, is ignored). */
 
 #define HC_PLAY_TRIES 8
 #define HC_PLAY_GAP   10
@@ -261,7 +246,7 @@ static void hot_cues_key_filter(const u16 *k, const u16 *p, u16 *own)
     u16 p1 = p[1];
     int i;
 
-    if (!hot_cues_on || c850_ui_flag(C850_UI_FLAG_HOT_CUES_OFF))
+    if (!hot_cues_on)
         return;
     if (c850_ui_shift(k, p, own, C850_K0_RELOOP)) {
         hc_toggle_mode();

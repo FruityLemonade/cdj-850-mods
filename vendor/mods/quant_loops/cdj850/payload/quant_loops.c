@@ -206,6 +206,44 @@ int quant_loops_beat_nearest(u32 frame)
     return i + 1;
 }
 
+static u32 ql_step(void);
+static u32 ql_pt_frame(int i, u32 s);
+
+/* Nearest quantize point to `frame` (ties to the earlier one): beat index in
+ * *i, step in *s. QL_AWAY as above; before the first beat of the grid: beat
+ * 0. Returns 0 or QL_AWAY. */
+static __attribute__((noinline)) int ql_point_nearest(u32 frame, u32 step, int *pi, u32 *ps)
+{
+    u32 n = quant_loops_window_n(), s, best = 0, best_d = 0xFFFFFFFFu;
+    int i = quant_loops_beat_at_or_before(frame);
+
+    if (i == QL_AWAY)
+        return QL_AWAY;
+    *ps = 0;
+    if (i == QL_NONE) {
+        *pi = 0;
+        return 0;
+    }
+    if ((u32)i + 1 >= n) {           /* last beat of the grid */
+        *pi = i;
+        return 0;
+    }
+    for (s = 0; s <= 16u; s += step) {
+        u32 f = ql_pt_frame(i, s), d = f > frame ? f - frame : frame - f;
+        if (d < best_d) {
+            best_d = d;
+            best = s;
+        }
+    }
+    if (best == 16u) {
+        i++;
+        best = 0;
+    }
+    *pi = i;
+    *ps = best;
+    return 0;
+}
+
 /* ms length of `beats` beats at BPMx100 (stock math with the grid tempo). */
 static u32 ql_beats_ms(u32 beats, u32 bpm100)
 {
@@ -222,6 +260,52 @@ u32 quant_loops_beat_ms_after(int i, u32 k)
     if ((u32)i + k < n)
         return C850_GRID_TIME_MS(i + k);
     return C850_GRID_TIME_MS(i) + ql_beats_ms(k, C850_GRID_BPM100(i));
+}
+
+/* Grid time (ms) of position p sixteenths of a beat after beat i. */
+u32 quant_loops_grid_ms(int i, u32 p)
+{
+    u32 t0 = quant_loops_beat_ms_after(i, p >> 4), r = p & 15u;
+
+    if (r == 0)
+        return t0;
+    return t0 + (r * (quant_loops_beat_ms_after(i, (p >> 4) + 1u) - t0) + 8u) / 16u;
+}
+
+/* ---- quantize points (UTILITY QUANTIZE: 1, 1/2 or 1/4 beat) ----
+ *
+ * A point is (beat i, step s): s sixteenths of a beat after beat i, s a
+ * multiple of ql_step() (16, 8 or 4). Frame of a point: ql_pt_frame. */
+static u32 ql_step(void)
+{
+    return 16u / c850_ui_quant_div();
+}
+
+static __attribute__((noinline)) u32 ql_pt_frame(int i, u32 s)
+{
+    return quant_loops_ms_to_frames(quant_loops_grid_ms(i, s));
+}
+
+/* The step of frame `in` on beat i (a 1/16 step whose frame is `in`), else 16. */
+static __attribute__((noinline)) u32 ql_step_of(int i, u32 in)
+{
+    u32 s;
+
+    for (s = 0; s < 16u; s++)
+        if (ql_pt_frame(i, s) == in)
+            return s;
+    return 16u;
+}
+
+/* Out frame of a loop from `in` (step s of beat i; 16 = off the 1/16 steps)
+ * to step s + q: in + the grid duration, rounded once. Rounding the length
+ * rather than the out keeps the first pass within half a frame of the grid
+ * length (the out's own frame could be a whole frame off it). */
+static __attribute__((noinline)) u32 ql_out_from(int i, u32 s, u32 in, u32 q)
+{
+    u32 b = s < 16u ? s : 0u;
+
+    return in + quant_loops_ms_to_frames(quant_loops_grid_ms(i, b + q) - quant_loops_grid_ms(i, b));
 }
 
 /* Did this grid give the deck's tempo? Same proof as mods/bpm_decimals: the
@@ -257,99 +341,111 @@ int quant_loops_grid_ok(int i)
  * of it (ties to the earlier one), as LOOP IN snaps. Ahead: the deck plays on
  * to the in and loops from there, as it does for a LOOP OUT ahead of it.
  *
- *   whole beats  in = the beat nearest pos, out = the grid time of beat
- *                in + beats (the in beat's tempo past the window).
- *   fraction     L = beats/16 of the interval of the beat at or before pos;
- *                in = the multiple of L after that beat (up to the next beat)
- *                nearest pos, out = in + L. 1/2 pressed 1/5 into a beat:
- *                in = the beat; 2/5 into it: in = beat + 1/2; 4/5: the next beat.
+ *   whole beats  in = the quantize point (UTILITY QUANTIZE: 1, 1/2 or 1/4
+ *                beat) nearest pos, out = in + the grid duration of `beats`
+ *                beats from there (the in beat's tempo past the window).
+ *   fraction     L = beats/16 beat; in = the multiple of L on the beat at or
+ *                before pos (up to the next beat) nearest pos, out = in + L.
+ *                1/2 pressed 1/5 into a beat: in = the beat; 2/5 into it:
+ *                in = beat + 1/2; 4/5: the next beat.
+ *   Outs are in + the rounded grid duration (ql_out_from), so the first pass
+ *   is within half a frame of the grid length.
  *
  * Invariant (checked, else 0): in < out and pos < out (the playhead is never
  * past the out of the new loop).
  */
 int quant_loops_auto_points(u32 pos, u32 beats, u32 frac, u32 *in, u32 *out, u32 *out8)
 {
-    u32 n = quant_loops_window_n();
-    u32 t_beat, t_in, t_out, fin, fout;
+    u32 t_in, t_out, fin, fout, s, q;
     int i;
 
-    if (beats == 0 || beats > 16)
+    if (beats == 0 || beats > 16 || (frac && beats > 8))
         return 0;
-    if (frac) {
-        u32 d, k, steps = 16u / beats, best = 0, best_dist = 0xFFFFFFFFu;
-
-        i = quant_loops_beat_at_or_before(pos);
-        if (i == QL_NONE)
-            i = 0;                   /* lead-in: the first beat is the nearest */
-        if (i < 0 || !quant_loops_grid_ok(i))
-            return 0;
-        t_beat = C850_GRID_TIME_MS(i);
-        d = quant_loops_beat_ms_after(i, 1) - t_beat;          /* this beat's interval */
-        for (k = 0; k <= steps; k++) {                         /* k == steps: the next beat */
-            u32 f = quant_loops_ms_to_frames(t_beat + (k * beats * d + 8u) / 16u);
-            u32 dist = f > pos ? f - pos : pos - f;
-            if (dist < best_dist) {
-                best_dist = dist;
-                best = k;
-            }
-        }
-        k = best;
-        if (k == steps) {            /* the next beat is nearest: its interval from there */
-            if ((u32)i + 1u >= n)
-                return 0;
-            i++;
-            t_beat = C850_GRID_TIME_MS(i);
-            d = quant_loops_beat_ms_after(i, 1) - t_beat;
-            k = 0;
-        }
-        t_in = t_beat + (k * beats * d + 8u) / 16u;
-        t_out = t_beat + ((k + 1u) * beats * d + 8u) / 16u;
-    } else {
-        i = quant_loops_beat_nearest(pos);
-        if (i < 0 || !quant_loops_grid_ok(i))
-            return 0;
-        t_beat = t_in = C850_GRID_TIME_MS(i);
-        t_out = quant_loops_beat_ms_after(i, beats);
-    }
+    /* fraction: points every L = beats/16 beat; whole beats: the quantize value */
+    q = frac ? beats : beats * 16u;
+    if (ql_point_nearest(pos, frac ? beats : ql_step(), &i, &s) < 0 || !quant_loops_grid_ok(i))
+        return 0;
+    t_in = quant_loops_grid_ms(i, s);
+    t_out = quant_loops_grid_ms(i, s + q);
     fin = quant_loops_ms_to_frames(t_in);
-    fout = quant_loops_ms_to_frames(t_out);
+    fout = fin + quant_loops_ms_to_frames(t_out - t_in);
     if (fout <= fin)
         fout = fin + 1;
     if (fout <= pos)
         return 0;
     *in = fin;
     *out = fout;
-    *out8 = quant_loops_ms_to_frames(t_in + (quant_loops_beat_ms_after(i, 8) - t_beat));
+    *out8 = fin + quant_loops_ms_to_frames(quant_loops_grid_ms(i, s + 128u) - t_in);
     return 1;
 }
 
-/* LOOP IN: the nearest beat to pos (frame), or pos when the grid cannot say. */
+/* LOOP IN (and a new hot cue): the quantize point nearest pos (frame), or
+ * pos when the grid cannot say. */
 u32 quant_loops_in_point(u32 pos)
 {
-    int i = quant_loops_beat_nearest(pos);
-    if (i < 0 || !quant_loops_grid_ok(i))
+    int i;
+    u32 s;
+
+    if (ql_point_nearest(pos, ql_step(), &i, &s) < 0 || !quant_loops_grid_ok(i))
         return pos;
-    return quant_loops_beat_frame(i);
+    return ql_pt_frame(i, s);
 }
 
-/* LOOP OUT: the beat nearest pos whose frame is after `in`; when that is not
- * after in, the next beat after in. pos when the grid cannot say. */
+/* LOOP OUT: the quantize point nearest pos that is after `in`; when that is
+ * not after in, the next point after in. With the in on the grid (a 1/16
+ * step) the out is in + the rounded grid duration (ql_out_from). pos when
+ * the grid cannot say. */
 u32 quant_loops_out_point(u32 in, u32 pos)
 {
-    u32 n = quant_loops_window_n();
-    int i = quant_loops_beat_nearest(pos);
+    u32 n = quant_loops_window_n(), step = ql_step(), s, sin;
+    int i, k;
 
-    if (i < 0 || !quant_loops_grid_ok(i))
+    if (ql_point_nearest(pos, ql_step(), &i, &s) < 0 || !quant_loops_grid_ok(i))
         return pos;
-    if (quant_loops_beat_frame(i) <= in) {
-        i = quant_loops_beat_at_or_before(in);
-        if (i == QL_AWAY)
+    k = quant_loops_beat_at_or_before(in);
+    if (k == QL_AWAY)
+        return pos;
+    if (k == QL_NONE)
+        k = 0;
+    if ((u32)k >= n)
+        return pos;
+    s = i < k ? 0u : s + (u32)(i - k) * 16u;   /* the point on beat k */
+    if (ql_pt_frame(k, s) <= in) {   /* the next point after in */
+        for (s = 0; s < 64u && ql_pt_frame(k, s) <= in; s += step)
+            ;
+        if (s >= 64u)
             return pos;
-        i = i == QL_NONE ? 0 : i + 1;
-        if ((u32)i >= n || quant_loops_beat_frame(i) <= in)
-            return pos;              /* no beat after in in this window */
     }
-    return quant_loops_beat_frame(i);
+    sin = ql_step_of(k, in);
+    if (sin < 16u && s > sin)
+        return ql_out_from(k, sin, in, s - sin);
+    return ql_pt_frame(k, s);
+}
+
+/* loop_roll's quantized release: the first quantize point whose block (1/7
+ * frame, 84 samples) is at or after pos_block - late; 1 and *target when the
+ * grid can say (quantize on, a grid that gave the tempo), else 0. A point up
+ * to `late` blocks behind counts as reached (a release just after it lands
+ * at once). Read-only; playertask. */
+int quant_loops_roll_target(u32 pos_block, u32 late, u32 *target)
+{
+    u32 step = ql_step(), s, b, lim = pos_block > late ? pos_block - late : 0u;
+    int i = quant_loops_beat_at_or_before(pos_block / 7u);
+
+    if (i == QL_AWAY)
+        return 0;
+    if (i == QL_NONE)
+        i = 0;
+    if (!quant_loops_grid_ok(i))
+        return 0;
+    for (s = 0; s <= 32u; s += step) {
+        b = (quant_loops_grid_ms(i, s) * 21u + 20u) / 40u;   /* ms * 525 / 1000 */
+        if (b >= lim) {
+            *target = b;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* The ring sector that holds `frame`, found from sector s (which holds
@@ -564,16 +660,25 @@ static int ql_drift(void)
     return !c850_ui_flag(C850_UI_FLAG_DRIFT_OFF);
 }
 
+/* UTILITY QUANTIZE: the quantize value, 1 BEAT -> 1/2 BEAT -> 1/4 BEAT.
+ * Quantize on/off stays on BEAT SELECT + LOOP IN. Kept in the file/RAM
+ * flags (bits 16..17, c850_ui.h): it travels with the stick. */
 static const char *ql_q_utility_value(void)
 {
+    u32 d;
+
     if (!quant_loops_on)
         return 0;
-    return c850_ui_quantize() ? "ON" : "OFF";
+    d = c850_ui_quant_div();
+    return d == 4u ? "1/4 BEAT" : d == 2u ? "1/2 BEAT" : "1 BEAT";
 }
 
 static void ql_q_utility_select(void)
 {
-    c850_ui_set_flag(C850_UI_FLAG_QUANT_OFF, c850_ui_quantize());
+    u32 d = c850_ui_quant_div();
+    u32 v = d == 1u ? 1u : d == 2u ? 2u : 0u;      /* 1 -> 1/2 -> 1/4 -> 1 */
+
+    c850_ui_set_flags(C850_UI_FLAG_QVALUE_MASK, v << C850_UI_FLAG_QVALUE_SHIFT);
 }
 
 static const c850_ui_utility_item ql_q_utility_item = {
@@ -644,24 +749,9 @@ u32 quant_loops_effective_out(u32 in)
     return qd_fresh && qd_dc > in ? qd_dc : qd_b0;
 }
 
-/* Grid time (ms) of position p sixteenths of a beat after beat i. */
-u32 quant_loops_grid_ms(int i, u32 p)
-{
-    u32 t0 = quant_loops_beat_ms_after(i, p >> 4), r = p & 15u;
-
-    if (r == 0)
-        return t0;
-    return t0 + (r * (quant_loops_beat_ms_after(i, (p >> 4) + 1u) - t0) + 8u) / 16u;
-}
-
 /* Out frame of a loop q/16 beats long from in, which is step s (0..15) of
- * beat i, or off the grid (s = 16: in + the grid duration). */
-static u32 qd_grid_out(int i, u32 s, u32 in, u32 q)
-{
-    if (s < 16u)
-        return quant_loops_ms_to_frames(quant_loops_grid_ms(i, s + q));
-    return in + quant_loops_ms_to_frames(quant_loops_grid_ms(i, q) - C850_GRID_TIME_MS(i));
-}
+ * beat i, or off the grid (s = 16): in + the rounded grid duration. */
+#define qd_grid_out ql_out_from
 
 static u32 qd_tz(u32 q)
 {
@@ -688,9 +778,7 @@ u32 quant_loops_drift_length(u32 in, u32 out, u32 *num, u32 *den)
 
     if (i < 0 || out <= in || out - in < QL_DRIFT_MIN || !quant_loops_grid_ok(i))
         return 0;
-    for (s = 0; s < 16u; s++)
-        if (quant_loops_ms_to_frames(quant_loops_grid_ms(i, s)) == in)
-            break;
+    s = ql_step_of(i, in);
     lo = 1;
     hi = QL_MAX_Q;
     while (lo < hi) {                     /* first q with grid out >= out */

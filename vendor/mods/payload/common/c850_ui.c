@@ -170,7 +170,7 @@ volatile u32 c850_ui_usb_saves;      /* files written */
 volatile u32 c850_ui_usb_errors;     /* opens or writes that failed, bad files */
 
 static const char ui_usb_magic[8] = C850_UI_USB_MAGIC;
-#define UI_FLAGS_ALL        (C850_UI_FLAGS_MASK | (C850_UI_FLAGS2_MASK << 4) | 0xFFC0u)
+#define UI_FLAGS_ALL        (C850_UI_FLAGS_MASK | (C850_UI_FLAGS2_MASK << 4) | 0xFFC0u | C850_UI_FLAG_QVALUE_MASK)
 
 static void ui_usb_load(void)
 {
@@ -319,6 +319,14 @@ u32 c850_ui_standby_index(void)
 {
     u32 f = ui_usb_have ? ui_usb_flags : ui_ram_flags;
     return (f & C850_UI_FLAG_STANDBY_MASK) >> C850_UI_FLAG_STANDBY_SHIFT;
+}
+
+u32 c850_ui_quant_div(void)
+{
+    u32 f = ui_usb_have ? ui_usb_flags : ui_ram_flags;
+    u32 v = (f & C850_UI_FLAG_QVALUE_MASK) >> C850_UI_FLAG_QVALUE_SHIFT;
+
+    return v == 2u ? 4u : v == 1u ? 2u : 1u;    /* 3 (unused) reads as 1 beat */
 }
 
 /* ---- UTILITY items ---- */
