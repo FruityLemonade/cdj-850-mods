@@ -22,7 +22,7 @@ Your firmware file never leaves your computer. All the patching happens in the b
 | Build | What you get |
 |---|---|
 | **Standard** | Every mod tested on a CDJ-850 with no known issues. The core mods are always on; the optional ones are switched on or off on the deck. |
-| **Experimental** | Everything in Standard, plus Hot cues, the zoomed scrolling waveform and Loop roll. They are hardware tested too, but still have minor known issues. |
+| **Experimental** | Everything in Standard, plus Hot cues, the zoomed scrolling waveform and Slip mode. They are hardware tested too, but still have minor known issues. |
 | **Restore stock** | The unmodified Pioneer v1.13 firmware with a new version number, to roll back over a modded build. |
 
 ### Switching mods on the deck
@@ -31,7 +31,7 @@ Most optional mods appear in the **UTILITY** menu after **VERSION No.** Hold **M
 
 The settings are saved to `PIONEER/MODSET.DAT` on the USB stick, so they travel with the stick. A stick without that file uses the deck's own settings until you change one, which creates the file.
 
-Hot cues and Loop roll have no UTILITY item: they are switched with a **BEAT SELECT** combo (see their rows below).
+Hot cues and Slip mode have no UTILITY item: they are switched with a **BEAT SELECT** combo (see their rows below).
 
 ## Mods
 
@@ -63,7 +63,7 @@ Hot cues and Loop roll have no UTILITY item: they are switched with a **BEAT SEL
 |---|---|---|---|
 | **Hot cues** | — | Turns **BEAT 1**, **2** and **4** into hot cues A, B and C. Reads the hot cues set in rekordbox and saves new ones to the USB stick. Lit beat LEDs mark set slots, blinking ones empty slots. With quantize on, a new cue lands on the nearest beat. A jump while playing is instant when the cue is still in the deck's audio buffer (about 13 s behind or 15 s ahead); otherwise the deck loads 2.4 s of audio first instead of the stock 5.3 s. | Press **BEAT SELECT + RELOOP** to switch hot-cue mode on or off (the display shows HOT CUE ON/OFF; the setting is kept). Press a pad to jump to its cue, or to set one in an empty slot. Hold **BEAT 8** and press a pad to delete its cue. |
 | **Zoomed scrolling waveform** | **WAVEFORM**, **WAVE PLAYHEAD** | Replaces the **INFO** page 1 waveform strip with a live zoomed scrolling waveform. Works on rekordbox USB, other USB and Audio CD tracks. While zoomed in, the red cue strip marks the playhead and any active loop. | On **INFO** page 1, turn the rotary selector counter-clockwise to zoom out: close (4 s), medium (16 s), whole track. Turn clockwise to zoom back in. **WAVE PLAYHEAD** places the playhead at **LEFT 1/3** (default), **CENTER** or **LEFT**. |
-| **Loop roll** | — | Slip loop: while a beat button is held the auto beat loop plays, and on release playback lands where the track would have been without the loop. With quantize on, the roll plays on to the next quantize point and lands there. With Quantized loops, short rolls (1/8, 1/16 beat) are even. Works on USB tracks within the buffered audio. | Press **BEAT SELECT + LOOP OUT** to switch roll mode on or off (ROLL ON/OFF, off again after power-on). Hold **BEAT 1**, **2**, **4** or **8** while playing. |
+| **Slip mode** | — | Keeps a shadow playhead running at the tempo-fader speed during held beat-button loop rolls, **REV** reverse, **VINYL** scratch/backspin, and pause, then jumps back to where the track would have been (or the next quantize point with quantize on). With Quantized loops, short rolls (1/8, 1/16 beat) are even. Works on USB tracks within the buffered audio (flashes `SLIP MISS` past the ring). | Press **BEAT SELECT + LOOP OUT** to switch slip mode on or off (`SLIP ON`/`SLIP OFF`, off again after power-on). Hold **BEAT 1**, **2**, **4** or **8** to roll, or use **REV**, jog touch (**VINYL**), or **PLAY/PAUSE** while playing. |
 
 ## Going back to stock firmware
 

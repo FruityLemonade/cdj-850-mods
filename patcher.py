@@ -56,7 +56,7 @@ SWITCHABLE_LABELS = [
 KNOWN_ISSUES_LABELS = [
     "Hot cues on BEAT 1/2/4 (BEAT SELECT + RELOOP)",
     "Zoomed scrolling waveform (UTILITY: WAVEFORM)",
-    "Loop roll, a slip loop (BEAT SELECT + LOOP OUT)",
+    "Slip mode: loop roll, reverse, scratch & pause (BEAT SELECT + LOOP OUT)",
 ]
 
 BUILDS = {
@@ -75,7 +75,7 @@ BUILDS = {
         "title": "Experimental build",
         "badge": "Minor issues",
         "description": (
-            "Standard plus Hot cues, the zoomed scrolling waveform and Loop roll. "
+            "Standard plus Hot cues, the zoomed scrolling waveform and Slip mode (loop roll, reverse, scratch, pause). "
             "These are hardware tested too, but still have minor known issues."
         ),
         "alwaysOn": ALWAYS_ON_LABELS,
