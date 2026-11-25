@@ -44,7 +44,7 @@ ALWAYS_ON_LABELS = [
     "Auto standby (20 / 40 / 60 / 120 min in UTILITY)",
 ]
 TESTED_TOGGLE_LABELS = [
-    "Quantized loops & drift fix",
+    "Quantized loops (no drift)",
     "BPM decimals in INFO view",
     "BPM lock (±100%)",
     "Phase meter (INFO Page 2)",
