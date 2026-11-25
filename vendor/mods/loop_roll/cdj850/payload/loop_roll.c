@@ -18,7 +18,10 @@
  * Shadow playhead. The IRQ7 feeder plays one block of 84 stereo samples
  * (0x150 bytes, 1/7 of a CD frame) per DSPDREQ; while a loop plays it asks
  * isr_loop_out_reached (0x0C0158D4) whether to wrap, once per block, through
- * pool 0x0C07730C (the forward path). loop_roll_isr wraps that call: from the
+ * pool 0x0C07730C (the forward path), which the shared dispatcher
+ * c850_loop_out_isr (payload/common/c850_loop_out.c) owns: it asks
+ * loop_roll_out_hook first, then quant_loops' block loop, then the stock
+ * test. loop_roll_out_hook: from the
  * first call of a roll it counts blocks from the read position, so the count is
  * the un-looped position in blocks, on the sample clock and at whatever pitch
  * the DSP plays. On release it moves the read pointer to that block when the
@@ -27,7 +30,7 @@
  * left the loop with an injected RELOOP/EXIT press. Past the buffered audio it
  * leaves the loop where it is (stock EXIT) and counts a miss.
  *
- * Contexts: loop_roll_isr runs inside irq7_dspdreq_isr (interrupt stack, keep
+ * Contexts: loop_roll_out_hook runs inside irq7_dspdreq_isr (interrupt stack, keep
  * it tiny, no RTOS calls); the key filter and the tick run on playertask. The
  * ISR only reads lr_phase transitions playertask makes and makes the
  * ROLL/JUMP -> JUMPED/MISS ones itself.
@@ -35,15 +38,6 @@
 #include "c850.h"
 #include "c850_ui.h"
 
-#define LR_STOCK_OUT_REACHED C850_FN(0x0C0158D4, int, (int sector, u32 out, int z))
-#define LR_CLEAR_SEGMENTS    C850_FN(0x0C015B18, void, (void))
-#define LR_READ_PTR          C850_U32(0x0C7F6470)   /* next block the feeder plays */
-#define LR_PLAY_SECTOR       C850_S16(0x0C7F645C)   /* (ptr - base) / 0x930 */
-#define LR_WRITE_SECTOR      C850_S16(0x0C7F645E)
-#define LR_SEG_SOURCE        C850_U32(0x0C7F677C)   /* block source while loop segments exist */
-#define LR_BLOCK_BYTES       0x150u
-#define LR_BLOCKS            7u                     /* per sector */
-#define LR_BEHIND_MAX        1000u                  /* played sectors the ring keeps (<= 1001) */
 #define LR_BEATS             (C850_K1_BEAT1 | C850_K1_BEAT2 | C850_K1_BEAT4 | C850_K1_BEAT8)
 #define LR_LATE              10u                    /* blocks (19 ms): a point this far behind counts as reached */
 #define LR_STALL             50u                    /* player cycles (~0.6 s) without a feeder block: give up */
@@ -87,62 +81,35 @@ int quant_loops_roll_target(u32 pos_block, u32 late, u32 *target)
     return 0;
 }
 
-static u32 lr_mod(s32 v)
-{
-    while (v < 0)
-        v += (s32)C850_PCM_RING_SLOTS;
-    while (v >= (s32)C850_PCM_RING_SLOTS)
-        v -= (s32)C850_PCM_RING_SLOTS;
-    return (u32)v;
-}
-
-/* Position (blocks) of the block the read pointer names. */
-static u32 lr_read_pos(void)
-{
-    u32 s = (u32)(u16)LR_PLAY_SECTOR;
-    u32 off = LR_READ_PTR - (C850_PCM_RING_BASE + s * C850_PCM_SECTOR_BYTES);
-
-    return c850_ring_sector_to_frame((int)s) * LR_BLOCKS + off / LR_BLOCK_BYTES;
-}
-
-/* Move the read pointer to block `pos`; 0 when that audio is not in the ring. */
+/* Move the read pointer to block `pos` (payload/common/c850_loop_out.c); 0 when
+ * that audio is not in the ring. */
 static int lr_jump(u32 pos)
 {
-    u32 f = pos / LR_BLOCKS, sub = pos - f * LR_BLOCKS;
-    u32 cur = (u32)(u16)LR_PLAY_SECTOR, fcur = c850_ring_sector_to_frame((int)cur);
-    u32 s;
+    u32 from = c850_read_pos();
 
-    if (f >= fcur) {
-        u32 ahead = f - fcur, have = lr_mod((s32)LR_WRITE_SECTOR - (s32)cur);
-        if (ahead + 2u > have)
-            return 0;
-        s = lr_mod((s32)(cur + ahead));
-    } else {
-        if (fcur - f > LR_BEHIND_MAX)
-            return 0;
-        s = lr_mod((s32)cur - (s32)(fcur - f));
-    }
-    if (c850_ring_sector_to_frame((int)s) != f)
+    if (!c850_ring_jump(pos))
         return 0;
-    loop_roll_last_from = lr_read_pos();
-    LR_READ_PTR = C850_PCM_RING_BASE + s * C850_PCM_SECTOR_BYTES + sub * LR_BLOCK_BYTES;
-    LR_PLAY_SECTOR = (s16)s;
-    LR_CLEAR_SEGMENTS();             /* no segment remap past the loop (as a stock wrap does) */
-    LR_SEG_SOURCE = 0xFFFFFFFFu;
+    loop_roll_last_from = from;
     loop_roll_last_target = pos;
-    loop_roll_last_sector = s;
+    loop_roll_last_sector = (u32)C850_RING_READ_INDEX;
     return 1;
 }
 
-/* Pool 0x0C07730C: the forward loop-out test of irq7_dspdreq_isr, once per
- * block while a loop plays; the read pointer already names the next block. */
-int loop_roll_isr(int sector, u32 out, int z)
+/* First hook of c850_loop_out_isr (pool 0x0C07730C, the forward loop-out test
+ * of irq7_dspdreq_isr), once per block while a loop plays; the read pointer
+ * already names the next block. -1 = not mine (the block loop, then the stock
+ * test decide), 0 = no wrap. */
+int loop_roll_out_hook(int sector, u32 out, int z)
 {
     u32 ph = lr_phase;
 
+    (void)sector;
+    (void)out;
+    (void)z;
+
     if (ph == LR_ROLL || ph == LR_JUMP) {
         if (!lr_counting) {
-            lr_pos = lr_read_pos();
+            lr_pos = c850_read_pos();
             loop_roll_start_pos = lr_pos;
             loop_roll_start_tick = C850_TICK_MS;
             lr_counting = 1;
@@ -163,7 +130,7 @@ int loop_roll_isr(int sector, u32 out, int z)
     } else if (ph == LR_JUMPED) {
         return 0;                    /* no wrap until playertask has left the loop */
     }
-    return LR_STOCK_OUT_REACHED(sector, out, z);
+    return -1;
 }
 
 static int lr_looping(void)

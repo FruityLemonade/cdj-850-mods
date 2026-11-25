@@ -171,19 +171,38 @@ static int lr_grid_of(u32 in, struct lr_grid *g)
         return 0;
     g->i = i;
     g->in = in;
+    /* quant_loops' block loops keep the frame that holds the in block
+     * (ms * 21 / 40 blocks, 7 a frame); older loops the rounded frame */
     for (s = 0; s < 16u; s++)
-        if (loop_resize_ms_to_frames(loop_resize_grid_ms(i, s)) == in)
+        if (((loop_resize_grid_ms(i, s) * 21u + 20u) / 40u) / 7u == in)
             break;
+    if (s == 16u)
+        for (s = 0; s < 16u; s++)
+            if (loop_resize_ms_to_frames(loop_resize_grid_ms(i, s)) == in)
+                break;
     g->s = s;
     return 1;
 }
 
-/* Out frame of a loop q sixteenths of a beat long on grid g: in + the grid
- * duration rounded once (as quant_loops makes its outs), so the first pass
- * is within half a frame of the grid length. */
+/* Out frame of a loop q sixteenths of a beat long on grid g: with
+ * quant_loops built, the stock out of its block loop (the first frame at or
+ * after the out block, docs/cdj850-block-loops-design.md); else in + the grid
+ * duration rounded once, so the first pass is within half a frame of the grid
+ * length. */
+u32 quant_loops_q_out(u32 in, u32 q) __attribute__((weak, noinline));
+u32 quant_loops_q_out(u32 in, u32 q)
+{
+    (void)in;
+    (void)q;
+    return 0;
+}
+
 u32 loop_resize_grid_out(const struct lr_grid *g, u32 q)
 {
-    u32 b = g->s < 16u ? g->s : 0u;
+    u32 b = g->s < 16u ? g->s : 0u, f = quant_loops_q_out(g->in, q);
+
+    if (f)
+        return f;                     /* quant_loops' block loop: its out frame */
 
     return g->in + loop_resize_ms_to_frames(loop_resize_grid_ms(g->i, b + q) - loop_resize_grid_ms(g->i, b));
 }
@@ -329,6 +348,16 @@ static u32 lr_led_beats(u32 q, u32 frac)
     return 0;
 }
 
+/* quant_loops (when built): the next resize send makes a block loop q/16
+ * beats long from the in, and sends its own out frame (the first frame at or
+ * after the out block). 1 = it will; the no-op says 0. */
+int quant_loops_resize_hint(u32 q) __attribute__((weak, noinline));
+int quant_loops_resize_hint(u32 q)
+{
+    (void)q;
+    return 0;
+}
+
 /* 1 = the stock handler took the press (0 when 0x0CE6D26A == 0xFF). */
 static int lr_resize(u32 in, u32 old, u32 nout, u32 q)
 {
@@ -336,15 +365,20 @@ static int lr_resize(u32 in, u32 old, u32 nout, u32 q)
     u32 led = q ? lr_led_beats(q, frac) : 0;
     u32 b = led ? led : 8u;
     u32 saved = LR_CA90;
-    int done;
+    int done, hinted;
 
     /* the stock resize gives in + (CA90 - in) / ((8 / b) * (frac * 15 + 1)) */
     LR_CA90 = in + (nout - in) * (8u / b) * (frac * 15u + 1u);
+    hinted = q && quant_loops_resize_hint(q);
     done = LR_BEAT_HANDLER4((int)b) & 0xFF;
+    if (hinted)
+        quant_loops_resize_hint(0);
     LR_CA90 = saved;
     lr_track();
     if (!done)
         return 0;
+    if (hinted && C850_LOOP_OUT_REQUEST > in)
+        nout = C850_LOOP_OUT_REQUEST;  /* quant_loops' frame for the block loop */
     C850_AUTO_LOOP_BEATS = (u8)led;
     loop_resize_count++;
     loop_resize_last_in = in;

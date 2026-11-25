@@ -14,7 +14,7 @@ Section 4b.10 of docs/cdj850-modding.md has the trace.
 * loop_resize_tick: pool 0x0C0D7B98 (keys_state4_looping, 0x0C0E0F34), read
   only by the mov.l at 0x0C0D79A6 in player_key_dispatch_by_state (tail jump,
   state 4), to the shared tick c850_loop_tick (mods/payload/include/c850.h;
-  the same word and symbol as quant_loops_drift). Its hook loop_resize_state4
+  the same word and symbol as quant_loops_tick). Its hook loop_resize_state4
   follows which loop out is in effect and sends a halving that had to wait
   for the next loop pass (playhead past the new out); the stock handler runs
   after the hooks.

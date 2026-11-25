@@ -8,7 +8,7 @@
  * RELOOP, hot-cue mode), quant_loops (BEAT SELECT + LOOP IN, quantize),
  * loop_resize (reads the quantize flag), loop_roll (BEAT SELECT + LOOP OUT,
  * roll mode, kept in RAM: the flags byte has no free bit); the UTILITY items
- * after VERSION No. (waveform: WAVE PLAYHEAD, quant_loops: QUANTIZE DRIFT).
+ * after VERSION No. (waveform: WAVE PLAYHEAD, quant_loops: QUANTIZE).
  */
 #include "c850_ui.h"
 
@@ -286,7 +286,7 @@ int c850_ui_set_flags(u32 mask, u32 value)
     } else if (ui_usb_have) {
         /* The stick refused the write, but c850_ui_flag still reads the
          * stick's copy: keep every bit of the change there (not only bits
-         * 6+), or quantize, drift and the playhead stay at the file's value. */
+         * 6+), or quantize and the playhead stay at the file's value. */
         ui_usb_flags = all;
     }
     if (!m1 && !m2)

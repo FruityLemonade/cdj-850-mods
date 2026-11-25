@@ -88,7 +88,7 @@ typedef void c850_ui_tick_fn(void);
 #define C850_UI_FLAG_WAVE_LEFT   0x04
 #define C850_UI_FLAGS_MASK       (C850_UI_FLAG_QUANT_OFF | C850_UI_FLAG_HOT_CUES | C850_UI_FLAG_WAVE_LEFT)
 #define C850_UI_FLAG_WAVE_CENTER 0x10            /* stored in +0x21 bit 0 */
-#define C850_UI_FLAG_DRIFT_OFF   0x20            /* stored in +0x21 bit 1: loop drift correction off (default on) */
+#define C850_UI_FLAG_DRIFT_OFF   0x20            /* +0x21 bit 1: CDJ-350 drift correction off; the CDJ-850 ignores it (block loops) */
 #define C850_UI_FLAGS2_MASK      0x03
 
 /* Additional flags persisted in PIONEER/MODSET.DAT (and RAM when no stick is mounted).
