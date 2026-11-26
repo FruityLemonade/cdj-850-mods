@@ -4,7 +4,7 @@
 Only while a beat grid of the loaded USB track is in RAM (the grid gave the
 deck's tempo); otherwise every routine passes the stock values through. Code is
 C in payload/quant_loops.c (shared SDRAM payload, mods/payloadbuild.py); the
-patches are eight pool-word redirects, no cave bytes.
+patches are pool-word redirects, no cave bytes.
 
 * quant_loops: pool 0x0C0CE8B4 (0x0C006A92, next_sector) in auto_beat_loop_set's
   USB new-loop path (0x0C0CDE6E), read at 0x0C0CE696 (before the out
@@ -20,22 +20,30 @@ patches are eight pool-word redirects, no cave bytes.
 * quant_loops_loop_out / _loop_out2: pools 0x0C0D1688 and 0x0C0D1984
   (audio_send_cmd), read only in the state-3 LOOP OUT paths: snap the out
   sector of cmd 1 / mode 3 to the nearest beat after the loop in.
-* quant_loops_drift: pool 0x0C0C7F7C (keys_state4_looping, 0x0C0D28AC), read
-  only at 0x0C0C7D92 in player_key_dispatch_by_state (state 4): runs per-pass
-  drift correction (cmd 0x1e, resize 1), then the stock handler.
+* quant_loops_tick: pool 0x0C0C7F7C (keys_state4_looping, 0x0C0D28AC), read
+  only at 0x0C0C7D92 in player_key_dispatch_by_state (state 4): finds the
+  block loop of a loop no writer here armed, then the stock handler.
+* quant_loops_blocks: pool 0x0C06EDB0 (isr_loop_out_reached 0x0C0161C8),
+  read only at 0x0C06EBF6 in the feeder ISR 0x0C06E118 (the forward
+  loop-out test, once per 84-sample block while a loop plays): the
+  block-precise wrap of the armed loop, else the stock test. The other word
+  (0x0C06E72C, read at 0x0C06E654, the path that can play in reverse) stays
+  stock. MAIN installs the vector at run time, so the boot-critical walk does
+  not reach the ISR.
 * quant_loops_utility_scroll / _select / _draw: pools 0x0C0C902C
   (utility_scroll 0x0C0D641A, read at 0x0C0C8EFE), 0x0C0C9670
   (utility_set_level 0x0C0D6374, read at 0x0C0C955A) and 0x0C0666A4
   (utility_draw_list 0x0C063C88, read at 0x0C0665E8): the shared UTILITY list
-  of payload/common/c350_ui.c (PAYLOAD_COMMON). Items QUANTIZE and DRIFT FIX
-  after Ver switch snapping and the drift correction ON/OFF, saved in the
-  settings record (+0x17, c350_ui.h); both default on.
+  of payload/common/c350_ui.c (PAYLOAD_COMMON). Items QUANTIZE (ON/OFF) and
+  Q SIZE (1, 1/2, 1/4 beat) after Ver, saved in the settings record (+0x17,
+  c350_ui.h); quantize defaults on, 1 beat.
 """
 from sigpatch import Anchor, PoolRedirect
 
 NEXT_SECTOR = 0x0C006A92
 AUDIO_SEND_CMD = 0x0C0C7850
 STATE4_KEYS = 0x0C0D28AC
+STOCK_OUT_REACHED = 0x0C0161C8
 
 PAYLOAD_COMMON = ('c350_ui',)
 
@@ -88,11 +96,17 @@ MODS = {
         [0x2F26, 0xE703, 0x8F05, 0xE401, 0xD35E, 0x430B, 0xE502, 0xA6CA, 0x7F10], 4,
         AUDIO_SEND_CMD, 'quant_loops_loop_out'),
     # 0x0C0C7D92: mov.l @(0x0C0C7F7C),r3; jmp @r3; lds.l @r15+,pr (state 4 -> keys_state4_looping)
-    'quant_loops_drift': _redirect(
-        'quant loops: loop drift correction (per-pass out on the grid length, state-4 tick)',
+    'quant_loops_tick': _redirect(
+        'quant loops: the state-4 tick finds the block loop of a loop it did not set',
         [0x00A8, 0x0098, 0x00A8, 0x0098, 0xD37B, 0x432B, 0x4F26, 0xD37A,
          0x432B, 0x4F26, 0xD37A, 0x432B, 0x4F26], 10,
-        STATE4_KEYS, 'quant_loops_drift_entry'),
+        STATE4_KEYS, 'quant_loops_tick_entry'),
+    # 0x0C06EBF2: mov.w @r7,r4; mov #0,r6; mov.l @(0x0C06EDB0),r13; jsr @r13;
+    # mov.l @(16,r15),r5; extu.b r0,r14 (feeder ISR 0x0C06E118, the forward loop-out test)
+    'quant_loops_blocks': _redirect(
+        'quant loops: block-precise loop wraps on the grid (feeder loop-out test)',
+        [0x6471, 0xE600, 0xDD6E, 0x4D0B, 0x55F4, 0x6E0C], 2,
+        STOCK_OUT_REACHED, 'quant_loops_out_isr'),
     # 0x0C0C8EF6: mov.b @(0x18,r15),r4; mov.b @(0x1c,r15),r5; mov.l @(0x0C0C902C),r3; jsr/n @r3 (level 2 rotary)
     'quant_loops_utility_scroll': _redirect(
         'quant loops: UTILITY list continues after Ver (shared c350_ui items)',
@@ -100,7 +114,7 @@ MODS = {
         0x0C0D641A, 'c350_ui_utility_scroll'),
     # 0x0C0C9554: mov.l @(cursor),r6; movu.b @r6,r5; mov.l @(0x0C0C9670),r3; jsr @r3; mov #3,r4 (list push)
     'quant_loops_utility_select': _redirect(
-        'quant loops: QUANTIZE / DRIFT FIX ON/OFF in UTILITY (shared c350_ui items)',
+        'quant loops: QUANTIZE ON/OFF and Q SIZE in UTILITY (shared c350_ui items)',
         [0x8802, 0x8B07, 0xD645, 0x3561, 0x8000, 0xD345, 0x430B, 0xE403], 5,
         0x0C0D6374, 'c350_ui_utility_select'),
     # 0x0C0665E8: mov.l @(0x0C0666A4),r3; jmp @r3 (utility_display, level 2)

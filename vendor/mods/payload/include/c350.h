@@ -70,11 +70,32 @@ typedef signed int s32;
 #define C350_PLAY_FRAME         C350_U32(0x0C7E4D30)
 #define C350_CUE_FRAME          C350_U32(0x0C7E4D4C)
 #define C350_LOOP_IN_FRAME      C350_U32(0x0C7E4D4C)
-#define C350_LOOP_OUT_FRAME     C350_U32(0x0C7E4D74)
+#define C350_LOOP_OUT_FRAME     C350_U32(0x0C7E4D74)  /* copy of the out record (0x0C00A7E0) */
 #define C350_LOOP_OUT_REQUEST   C350_U32(0x0C7E4D8C) /* from audio cmd 0x1e */
 #define C350_TRACK_LENGTH       C350_U32(0x0C7E4DBC)
 
+/* ---- PCM ring and the IRQ feeder (docs/cdj350.md, "Block-precise loops") ----
+ * Same layout as the CDJ-850's: 2400 sectors (frames) of 0x930 bytes, played
+ * in blocks of 84 stereo samples (0x150 bytes, 7 per sector) by the feeder
+ * ISR 0x0C06E118, which advances the read pointer and recomputes the read
+ * sector before its loop-out test. */
+#define C350_RING_READ_INDEX    C350_U16(0x0C7E4D10)  /* = C350_PLAY_SECTOR */
+#define C350_RING_WRITE_INDEX   C350_U16(0x0C7E4D12)  /* forward fill */
+#define C350_RING_OLDEST        C350_U16(0x0C7E4D14)  /* oldest sector kept (<= 1000 behind) */
+#define C350_PCM_READ_PTR       C350_U32(0x0C7E4D24)  /* next block the feeder plays */
+#define C350_PCM_RING_BASE      0x0C1D7710u
+#define C350_PCM_RING_SLOTS     2400u
+#define C350_PCM_SECTOR_BYTES   0x930u
+#define C350_PCM_BLOCK_BYTES    0x150u
+#define C350_BLOCKS_PER_FRAME   7u
+#define C350_AUDIO_CD_MODE      C350_U8(0x0C7E4F78)   /* 1 = CD (MSF sector table), 0 = USB data [emu] */
+#define C350_AUDIO_ALT_FILL     C350_U8(0x0C7E4F1C)   /* 0 = the forward-fill branch of the loop-out test */
+#define C350_AUDIO_LOOP_PLAYING C350_U8(0x0C7E4F24)   /* set by the out-record builder 0x0C00A7E0 */
+#define C350_TICK_MS            C350_U32(0x0CD2DCC0)  /* +1 per 1 ms tick */
+
 /* ---- Loops ---- */
+#define C350_LOOP_IN_SECTOR     C350_U16(0x0C7E4D5C)  /* in record +0x10: its ring sector */
+#define C350_LOOP_OUT_RECORD    C350_U32(0x0C7E4D60)  /* applied out frame the feeder tests (+0x10 sector) */
 #define C350_LOOP_ACTIVE        C350_U8(0x0CD48BD1)
 #define C350_LOOP_OUT_CMD       C350_U32(0x0CD48CCC)
 #define C350_LOOP_D1C0          C350_U32(0x0CD48574)

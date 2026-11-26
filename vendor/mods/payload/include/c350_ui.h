@@ -12,8 +12,9 @@
  * bits 4..7 set (its test for erased flash), so those bits are not free.
  * Every other bit is a stock field, except +0x14..+0x17: four bytes of error
  * detail that MAIN writes only when it logs disc error 0x12 or 0x15
- * (0x0C085584). The mods keep their switches in +0x17 as 0x50 | flags, the
- * flags being "off" bits; any other value (0 after the defaults routine
+ * (0x0C085584). The mods keep their switches in +0x17 as (0x50 + size << 4) | flags,
+ * the flags being "off" bits and size the quantize size (0 = 1 beat, 1 = 1/2,
+ * 2 = 1/4: high nibble 5, 6 or 7); any other value (0 after the defaults routine
  * 0x0C085606 or a factory reset, or a disc error's detail) reads as no flag
  * set, so every mod switch is on.
  *
@@ -39,9 +40,9 @@
 /* ---- mod flags (settings record +0x17) ---- */
 #define C350_UI_SETTINGS         0x0C9BE004u
 #define C350_UI_FLAGS_BYTE       C350_U8(C350_UI_SETTINGS + 0x17)
-#define C350_UI_FLAGS_MAGIC      0x50u           /* high nibble of a valid flags byte */
+#define C350_UI_FLAGS_MAGIC      0x50u           /* high nibble of a valid flags byte, size 1 beat (0x60: 1/2, 0x70: 1/4) */
 #define C350_UI_FLAG_QUANT_OFF   0x01u           /* quantize off (default on) */
-#define C350_UI_FLAG_DRIFT_OFF   0x02u           /* loop drift correction off (default on) */
+#define C350_UI_FLAG_DRIFT_OFF   0x02u           /* reserved: DRIFT FIX of builds before block loops (ignored) */
 #define C350_UI_FLAG_SORT_MASK   0x0Cu           /* browse: TRACK sort 0 default, 1 BPM, 2 key */
 #define C350_UI_FLAG_SORT_SHIFT  2u
 #define C350_UI_FLAGS_MASK       0x0Fu
@@ -51,7 +52,8 @@ void c350_ui_set_flag(u32 flag, int on);        /* changes the bit and saves the
 u32 c350_ui_field(u32 mask, u32 shift);         /* a multi-bit field of the flags */
 void c350_ui_set_field(u32 mask, u32 shift, u32 value);  /* ... and saves the record */
 int c350_ui_quantize(void);                     /* 1 = grid snapping on */
-int c350_ui_drift(void);                        /* 1 = loop drift correction on */
+u32 c350_ui_quant_div(void);                    /* quantize size: 1, 2 or 4 points per beat */
+void c350_ui_set_quant_div(u32 div);            /* ... and saves the record */
 
 /* ---- UTILITY items (after Ver) ---- */
 #define C350_UI_UTILITY_FIRST    5u              /* Ver is stock item 4 */

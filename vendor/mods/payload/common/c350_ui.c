@@ -5,7 +5,7 @@
  *
  * Built once into the payload when any built mod names 'c350_ui' in
  * PAYLOAD_COMMON (mods/payloadbuild.py). Users: quant_loops (QUANTIZE,
- * DRIFT FIX), browse (SORT).
+ * Q SIZE), browse (SORT).
  */
 #include "c350_ui.h"
 
@@ -13,13 +13,36 @@
 
 /* ---- mod flags ---- */
 
+/* +0x17 is valid when its high nibble is 5 + the quantize size (0..2). */
+static u32 ui_valid(u32 b)
+{
+    u32 hi = b & 0xF0u;
+
+    return hi >= C350_UI_FLAGS_MAGIC && hi <= C350_UI_FLAGS_MAGIC + 0x20u;
+}
+
 static u32 ui_flags(void)
 {
     u32 b = C350_UI_FLAGS_BYTE;
 
-    if ((b & 0xF0u) != C350_UI_FLAGS_MAGIC)
-        return 0;
-    return b & C350_UI_FLAGS_MASK;
+    return ui_valid(b) ? b & C350_UI_FLAGS_MASK : 0;
+}
+
+static u32 ui_qsize(void)
+{
+    u32 b = C350_UI_FLAGS_BYTE;
+
+    return ui_valid(b) ? ((b & 0xF0u) - C350_UI_FLAGS_MAGIC) >> 4 : 0;
+}
+
+/* Flags f and quantize size q (0..2) to +0x17 and save; all defaults: 0. */
+static void ui_write(u32 f, u32 q)
+{
+    f &= C350_UI_FLAGS_MASK;
+    if (q > 2u)
+        q = 0;
+    C350_UI_FLAGS_BYTE = f || q ? (u8)(C350_UI_FLAGS_MAGIC + (q << 4) + f) : 0;
+    UI_SETTINGS_SAVE(2, C350_UI_SETTINGS);
 }
 
 int c350_ui_flag(u32 flag)
@@ -32,9 +55,7 @@ void c350_ui_set_flag(u32 flag, int on)
     u32 f = ui_flags();
 
     flag &= C350_UI_FLAGS_MASK;
-    f = on ? (f | flag) : (f & ~flag);
-    C350_UI_FLAGS_BYTE = f ? (u8)(C350_UI_FLAGS_MAGIC | f) : 0;
-    UI_SETTINGS_SAVE(2, C350_UI_SETTINGS);
+    ui_write(on ? (f | flag) : (f & ~flag), ui_qsize());
 }
 
 u32 c350_ui_field(u32 mask, u32 shift)
@@ -44,10 +65,17 @@ u32 c350_ui_field(u32 mask, u32 shift)
 
 void c350_ui_set_field(u32 mask, u32 shift, u32 value)
 {
-    u32 f = (ui_flags() & ~mask) | ((value << shift) & mask & C350_UI_FLAGS_MASK);
+    ui_write((ui_flags() & ~mask) | ((value << shift) & mask), ui_qsize());
+}
 
-    C350_UI_FLAGS_BYTE = f ? (u8)(C350_UI_FLAGS_MAGIC | f) : 0;
-    UI_SETTINGS_SAVE(2, C350_UI_SETTINGS);
+u32 c350_ui_quant_div(void)
+{
+    return 1u << ui_qsize();
+}
+
+void c350_ui_set_quant_div(u32 div)
+{
+    ui_write(ui_flags(), div == 4u ? 2u : div == 2u ? 1u : 0u);
 }
 
 int c350_ui_quantize(void)
@@ -55,10 +83,6 @@ int c350_ui_quantize(void)
     return !c350_ui_flag(C350_UI_FLAG_QUANT_OFF);
 }
 
-int c350_ui_drift(void)
-{
-    return !c350_ui_flag(C350_UI_FLAG_DRIFT_OFF);
-}
 
 /* ---- UTILITY items ---- */
 
