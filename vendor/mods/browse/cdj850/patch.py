@@ -44,38 +44,22 @@ MODS = {
                       index=1, literal=True),
         old=0x0C04F2B0, routine='payload:browse_unmount_export',
     ),
-    # Shared query pool in the 0x1004 TRACK handler, also used by other
-    # menu handlers. The wrapper opts in only for the USB track query.
-    'browse_sort': PoolRedirect(
-        what='Request a sortable cursor for the USB TRACK list',
-        target='main', fw_versions=('1.13',),
-        anchor=Anchor(sig=[0x2F76, 0xE504, 0xE400, 0xD18E, 0x410B, 0x6673, 0x7F08],
-                      index=3, literal=True),
-        old=0x0C07C330, routine='payload:browse_track_query',
-    ),
     'browse_sort_cache': PoolRedirect(
-        what='Cache USB TRACK query results by sort order',
+        what='Key the USB menu cache by sort order',
         target='main', fw_versions=('1.13',),
         anchor=Anchor(sig=[0x55D5, 0x7714, 0xD210, 0x420B, 0x6603, 0x4011, 0x8F02],
                       index=2, literal=True),
         old=0x0C0BBABE, routine='payload:browse_track_cache',
     ),
-    'browse_sort_fields': PoolRedirect(
-        what='Order the track cursor by BPM or key',
-        target='main', fw_versions=('1.13',),
-        anchor=Anchor(sig=[0xE502, 0x80FC, 0x66F3, 0xDA49, 0x4A0B, 0x80FD],
-                      index=3, literal=True),
-        old=0x0C11D224, routine='payload:browse_sort_fields',
-    ),
     'browse_sort_results': PoolRedirect(
-        what='Keep cursor order when publishing the sorted TRACK results',
+        what='Order USB track lists by BPM or key after the stock finalizer',
         target='main', fw_versions=('1.13',),
         anchor=Anchor(sig=[0x6CD3, 0x3C6C, 0xD75E, 0x470B, 0x64C3, 0x60F0, 0x8801],
                       index=2, literal=True),
         old=0x0C0BABAC, routine='payload:browse_sort_results',
     ),
     'browse_sort_menu': PoolRedirect(
-        what='Cycle TRACK sort order on a short MENU press',
+        what='Cycle the track sort order on a short MENU press',
         target='main', fw_versions=('1.13',),
         anchor=Anchor(sig=[0x4F16, 0x4BF0, 0xD33E, 0x434B, 0xD63E, 0x6060],
                       index=2, literal=True),

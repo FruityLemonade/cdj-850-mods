@@ -97,7 +97,7 @@ static inline s32 c850_effective_pitch(void)
 #define C850_DB_RECORDS         0x0C9D44D4u
 #define C850_DB_RECORD_SIZE     0x864u
 #define C850_DB_RECORD_ID(rec)  C850_U32((rec) + 0x10)
-#define C850_DB_RECORD_DRIVE(rec) C850_U16((rec) + 0x16)
+#define C850_DB_RECORD_TRACK_COUNT(rec) C850_U16((rec) + 0x16)  /* tracks in the list it loaded from [emu] */
 #define C850_DB_RECORD_TITLE(rec) ((rec) + 0x38u)
 #define C850_DB_USB_DRIVE       3u
 #define C850_DB_LOAD_SORT_MENU  0x0C0750D8u
@@ -114,9 +114,25 @@ static inline s32 c850_effective_pitch(void)
 #define C850_DB_TRACK_QUERY     0x0C07C330u
 #define C850_DB_SORT_CURSOR     0x0C11D224u
 #define C850_DB_FINISH_RESULTS  0x0C0BABACu
+#define C850_DB_USB_SELECTION   0x0301u              /* low half of a local USB request's selection */
+#define C850_DB_REQUEST_SPARE_ARG 7u                 /* argument word the menu cache compares, unused by browse requests [emu] */
 #define C850_DB_RESULTS_COUNT(results) C850_U16((results) + 2)
 #define C850_DB_RESULTS_SORT(results)  C850_U8((results) + 4)
-#define C850_DB_RESULTS_INDEX(results) C850_U32((results) + 0x2C)
+#define C850_DB_RESULTS_NUMBERED(results) C850_U8((results) + 7)  /* finalizer numbers rows (+0x0A) */
+#define C850_DB_RESULTS_REQUEST(results) C850_U16((results) + 8)
+#define C850_DB_RESULTS_SELECTION(results) C850_U32((results) + 0xC)
+#define C850_DB_RESULTS_INDEX(results) C850_U32((results) + 0x2C)  /* u16 row numbers in display order */
+#define C850_DB_RESULTS_ROWS(results)  C850_U32((results) + 0x44)
+#define C850_DB_ROW_SIZE        0x14u
+#define C850_DB_ROW_ID(row)     C850_U32(row)                /* content ID for a track row [emu] */
+#define C850_DB_ROW_POSITION(row) C850_U16((row) + 0x0A)
+#define C850_DB_ROW_TYPE(row)   C850_U8((row) + 0x0C)        /* item type, 4 = track [emu] */
+#define C850_DB_ITEM_TRACK      0x04u
+#define C850_DB_MALLOC          0x0C088BC4u                  /* edbmalloc(size) */
+#define C850_DB_FREE            0x0C088C5Cu                  /* edbfree(ptr), NULL ok */
+#define C850_DB_CURSOR_NEXT     0x0C11D572u                  /* row = next(cursor, &error) */
+#define C850_DB_ROW_COLUMN      0x0C11D5E6u                  /* value = column(row, n, &converted) */
+#define C850_DB_CURSOR_CLOSE    0x0C11D39Cu
 
 /* ---- Keys (section 4b.1) ---- */
 #define C850_K0                 C850_U16(0x0CE6CA08) /* held keys, internal words */
@@ -241,6 +257,8 @@ int c850_ring_jump(u32 pos_block);     /* 1 = read pointer moved there (in the r
 /* ---- Dot-matrix text rows (section 4b.7) ---- */
 /* row record: [tag, attr0, attr1, attr2, len, text[len]] */
 #define C850_MATRIX_ROW(r)      (0x0C9D0B18 + (r) * 0x105)
+#define C850_MATRIX_ROW_CURSOR  0x20u                /* row byte 0: highlighted row [emu] */
+#define C850_ITEM_MENU_CATEGORY 0x63u                /* row byte 1: top BROWSE menu category [emu] */
 #define C850_MATRIX_DIRTY       C850_U8(0x0C9D1254)
 
 /* ---- Auto standby (section 4) ---- */
