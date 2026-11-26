@@ -48,7 +48,7 @@ static volatile u32 lr_target;       /* LR_JUMP: land when lr_pos reaches it */
 static u32 lr_seen;                  /* loop_roll_isr_calls at the last tick (stall check) */
 static u8 lr_mode;                   /* slip mode armed in RAM */
 static u8 lr_reloop_down, lr_wait;
-static u8 lr_rev_down, lr_rev_pending; /* synthetic REV rising edge on hold/quantized exit */
+static u8 lr_rev_down, lr_rev_pending, lr_rev_pulse; /* synthetic REV rising edge on hold/quantized exit */
 static u8 rev_held, rev_hold_slip;
 static u32 rev_hold_t0;
 static u8 rev_prov_active;
@@ -451,15 +451,23 @@ static void slip_try_land(void)
     }
 }
 
+static void slip_rev_press_pulse(void)
+{
+    C850_K0 |= C850_K0_REV;
+    if (!C850_KEY_EVENT) {
+        C850_KEY_EVENT = 1u;
+        lr_rev_pulse = 1u;
+    }
+    lr_rev_down = 1u;
+}
+
 static void slip_rev_inject_exit(void)
 {
     if (C850_AUDIO_REVERSE != 0u && C850_PLAYER_STATE == C850_STATE_PLAYING) {
-        if (!(C850_K0_PREV & C850_K0_REV)) {
-            C850_K0 |= C850_K0_REV;
-            lr_rev_down = 1u;
-        } else {
+        if (!(C850_K0_PREV & C850_K0_REV))
+            slip_rev_press_pulse();
+        else
             lr_rev_pending = 1u;
-        }
     }
 }
 
@@ -495,6 +503,10 @@ static void slip_rev_hold_tick(void)
 {
     if (lr_rev_down) {
         lr_rev_down = 0u;
+        if (lr_rev_pulse) {
+            lr_rev_pulse = 0u;
+            C850_KEY_EVENT = 0u;
+        }
         if (!(c850_ui_kt[0] & C850_K0_REV))
             C850_K0 &= ~C850_K0_REV;
     }
@@ -504,10 +516,8 @@ static void slip_rev_hold_tick(void)
     }
     if (lr_rev_pending && !(C850_K0_PREV & C850_K0_REV)) {
         lr_rev_pending = 0u;
-        if (C850_AUDIO_REVERSE != 0u && C850_PLAYER_STATE == C850_STATE_PLAYING) {
-            C850_K0 |= C850_K0_REV;
-            lr_rev_down = 1u;
-        }
+        if (C850_AUDIO_REVERSE != 0u && C850_PLAYER_STATE == C850_STATE_PLAYING)
+            slip_rev_press_pulse();
     }
     if (rev_prov_active) {
         if (C850_IS_USB_MODE != 1u || C850_TRACK_LENGTH != rev_prov_len ||

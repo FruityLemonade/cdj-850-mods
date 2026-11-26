@@ -142,6 +142,7 @@ static inline s32 c850_effective_pitch(void)
 #define C850_K1_PREV            C850_U16(0x0CE6CA24)
 #define C850_K2_PREV            C850_U16(0x0CE6CA26)
 #define C850_NEW_KEYS           C850_U8(0x0CE6D132)
+#define C850_KEY_EVENT          C850_U8(0x0CE6D0FC)  /* 1 when keys changed this cycle (gates 0x0C0D8D78) */
 #define C850_UI_LOCK            C850_U8(0x0CE6D151)
 #define C850_BEAT_FRACTION_MODE C850_U8(0x0CE6D154)  /* BEAT SELECT toggles it [emu] */
 /* K0 bits */
